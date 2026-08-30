@@ -22,3 +22,17 @@ pnpm dev
 - 日常の開発ブランチは `develop`。`main` は本番と一致するリリース用ブランチ
 - `main` へのpushで `.github/workflows/deploy.yml` がVPSへ配る
 - エージェント運用のルールは [CLAUDE.md](CLAUDE.md)
+
+### 週次収集
+
+毎週日曜日18:00（Asia/Tokyo）に、外部スケジューラーまたはGitHub Actionsから次を実行する。
+
+```bash
+curl -X POST https://research-desk.gucchii.com/api/collection/weekly \
+  -H "Authorization: Bearer $COLLECTION_CRON_SECRET"
+```
+
+7日以内の候補を優先して宅配・ロッカー各3件まで、全体6件まで登録する。候補が少ない場合は30日以内
+から補足し、同じURLを再実行しても登録しない。レスポンスの `runId` と件数を運用ログへ残す。
+取得元の規約・robots.txtに従い、必要以上の本文転載は行わない。フィード障害時はHTTPレスポンスの
+`status` が `PARTIAL` または `FAILED` になり、既存データは変更されない。

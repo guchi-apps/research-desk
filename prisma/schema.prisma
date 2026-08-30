@@ -1,6 +1,4 @@
-// クリップ収集機能そのもののドメイン設計はこのIssue（プロジェクト初期化）のスコープ外。
-// ここではPrismaの配線が通っていることを示す最小限のモデルだけを置く。実際の収集条件・
-// 要約結果の保存形式は今後のIssueで拡張する。
+// Clip は汎用クリップの配線確認用モデルとして残し、業界情報は専用モデルで管理する。
 
 datasource db {
   provider = "mysql"
@@ -22,4 +20,98 @@ model Clip {
   updatedAt   DateTime @updatedAt
 
   @@map("clips")
+}
+
+enum IndustryBusiness {
+  DELIVERY
+  LOCKER
+}
+
+enum IndustryInformationType {
+  NEW_PRODUCT
+  COMPETITOR
+  INTRODUCTION_CASE
+  RECRUITMENT_PARTNERSHIP
+  POLICY_SUBSIDY
+  MARKET_STATISTICS
+  USER_ISSUE
+  CONSTRUCTION
+  QUALITY_SAFETY
+  PATENT
+  OVERSEAS_CASE
+  OTHER
+}
+
+enum IndustryImportance {
+  HIGH
+  MEDIUM
+  REFERENCE
+}
+
+enum CollectionRunStatus {
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+model CollectionRun {
+  id              String            @id @default(cuid())
+  startedAt       DateTime          @default(now())
+  finishedAt      DateTime?
+  targetFrom      DateTime
+  targetTo        DateTime
+  supplementalFrom DateTime?
+  status          CollectionRunStatus @default(RUNNING)
+  fetchedCount    Int               @default(0)
+  selectedCount   Int               @default(0)
+  insertedCount   Int               @default(0)
+  duplicateCount  Int               @default(0)
+  failedCount     Int               @default(0)
+  errors          Json?
+
+  @@index([startedAt])
+  @@map("collection_runs")
+}
+
+enum IndustryPeriodScope {
+  IN_SCOPE
+  PAST_30_DAYS_SUPPLEMENT
+}
+
+model IndustryInformation {
+  id                 String                  @id @default(cuid())
+  business           IndustryBusiness
+  informationType    IndustryInformationType
+  title              String
+  originalUrl        String                  @db.Text
+  normalizedUrl      String                  @unique @db.VarChar(512)
+  urlHash            String                  @unique @db.Char(64)
+  sourceName         String
+  publisher          String?
+  isPrimarySource    Boolean                 @default(false)
+  publishedAt        DateTime?
+  occurredAt         DateTime?
+  collectedAt        DateTime                @default(now())
+  content            String?                 @db.Text
+  summary            String?                 @db.Text
+  extractedMetrics   Json?
+  implications       String?                 @db.Text
+  importance         IndustryImportance      @default(REFERENCE)
+  targetCompany      String?
+  targetProduct      String?
+  keywords           Json?
+  tags               Json?
+  periodScope        IndustryPeriodScope     @default(IN_SCOPE)
+  canonicalId        String?
+  canonical           IndustryInformation?   @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
+  relatedReprints    IndustryInformation[]  @relation("IndustryInformationCanonical")
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@index([business, informationType])
+  @@index([importance, publishedAt])
+  @@index([periodScope, publishedAt])
+  @@index([canonicalId])
+  @@map("industry_information")
 }

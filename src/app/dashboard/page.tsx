@@ -1,52 +1,43 @@
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { prisma } from "@/lib/db";
 
-export default async function DashboardPage() {
-  const currentUser = await getCurrentUser();
+type Business = "delivery" | "locker";
+type News = { id: string; business: Business; title: string; date: string; source: string; primary: boolean; high: boolean; summary: string; facts: string; insight: string; followUp: string; company: string; product: string; tags: string[]; supplement?: boolean; weekOffset?: number };
 
-  if (currentUser.status === "unavailable") {
-    return (
-      <main className="p-6">
-        <p className="text-sm text-slate-400">
-          認証状態を確認できませんでした。しばらくしてから再読み込みしてください。
-        </p>
-      </main>
-    );
-  }
+const NEWS: News[] = [
+  { id: "ykk-box", business: "delivery", title: "YKK AP、戸建て向け宅配ボックスの新シリーズを発売", date: "2026-08-28", source: "YKK AP", primary: true, high: true, summary: "受け取りサイズと施工性を両立した新製品を発表。非対面受け取り需要の継続を受け、ラインアップを拡充しました。", facts: "戸建て向け／新シリーズ／複数サイズを展開", insight: "門柱・ポストとの一体設計を前提に、設置条件別の選択肢を整理する。", followUp: "発売時期、実売価格、施工条件", company: "YKK AP", product: "宅配ボックス", tags: ["戸建て", "外構"] },
+  { id: "mlit", business: "delivery", title: "国土交通省、再配達削減に向けた置き配ポイントを発表", date: "2026-08-26", source: "国土交通省", primary: true, high: false, summary: "2026年度の実証結果と、利用者・事業者双方へのインセンティブ方針を公表しました。", facts: "置き配を対象／利用者・事業者向け施策", insight: "受け取り方法を選べること自体を、住宅設備の価値として説明できる。", followUp: "制度の対象地域と開始時期", company: "国土交通省", product: "置き配", tags: ["再配達", "制度"] },
+  { id: "joint", business: "delivery", title: "補足：物流各社、戸建てエリアで共同配送を検討", date: "2026-08-18", source: "物流ニュース", primary: false, high: false, summary: "今週の直接情報ではないものの、受け取り拠点の設計に影響する周辺動向です。", facts: "戸建てエリア／共同配送を検討", insight: "複数事業者が使いやすい受け取り設備と運用ルールの標準化が重要になる。", followUp: "実証地域と参加事業者", company: "物流各社", product: "共同配送", tags: ["周辺動向", "戸建て"], supplement: true },
+  { id: "packcity", business: "locker", title: "Packcity Japan、セルフ発送対応ロッカーを駅構内へ展開", date: "2026-08-27", source: "Packcity Japan", primary: true, high: true, summary: "発送・受け取りの両方に対応する機器を、首都圏の駅を中心に順次設置します。", facts: "発送・受け取りの両対応／駅構内／首都圏から展開", insight: "受け取り専用から発送まで、利用シーンを一台で完結させる設計を検討する。", followUp: "設置駅、配送会社、稼働率", company: "Packcity Japan", product: "マルチロッカー", tags: ["セルフ発送", "駅"] },
+  { id: "pudo", business: "locker", title: "補足：宅配便ロッカーPUDO、設置拠点を拡大", date: "2026-08-12", source: "オープンロジ", primary: false, high: false, summary: "設置場所の多様化が進み、商業施設との連携が競争軸になっています。", facts: "商業施設との連携／設置拠点を拡大", insight: "機器単体ではなく、来訪目的と滞在動線に組み込む設置設計が差別化になる。", followUp: "設置施設の業態と利用時間帯", company: "PUDO", product: "宅配便ロッカー", tags: ["競合", "商業施設"], supplement: true },
+  { id: "past-delivery", business: "delivery", title: "先週：住宅メーカー、宅配ボックス標準採用プランを拡充", date: "2026-08-20", source: "住宅産業新聞", primary: false, high: true, summary: "新築戸建ての標準仕様に宅配ボックスを組み込む動きが広がっています。", facts: "新築戸建て／標準仕様／宅配ボックス", insight: "設備単体の販売だけでなく、住宅プランの初期選択肢として設計する余地がある。", followUp: "採用メーカーと標準仕様の価格差", company: "住宅メーカー", product: "宅配ボックス", tags: ["住宅", "周辺動向"], weekOffset: -1 },
+  { id: "past-locker", business: "locker", title: "先週：コンビニ各社、店頭ロッカーの共同利用を検討", date: "2026-08-19", source: "流通ニュース", primary: false, high: false, summary: "店舗横断で受け取り・発送に使えるロッカーの運用検討が進んでいます。", facts: "コンビニ／共同利用／受け取り・発送", insight: "設置先ごとの利用規約を吸収できる共通UIと運用設計が必要になる。", followUp: "参加チェーンと実証店舗数", company: "コンビニ各社", product: "マルチロッカー", tags: ["競合", "共同利用"], weekOffset: -1 },
+];
 
-  if (currentUser.status === "unauthenticated") {
-    redirect("/login");
-  }
+const labels: Record<Business, string> = { delivery: "宅配事業", locker: "ロッカー事業" };
+const fmt = (date: string) => new Intl.DateTimeFormat("ja-JP", { month: "numeric", day: "numeric" }).format(new Date(`${date}T00:00:00`));
+const week = (offset: number) => { const start = new Date("2026-08-24T00:00:00Z"); start.setUTCDate(start.getUTCDate() + offset * 7); const end = new Date(start); end.setUTCDate(end.getUTCDate() + 6); return `${start.getUTCFullYear()}年${start.getUTCMonth() + 1}月${start.getUTCDate()}日 — ${end.getUTCMonth() + 1}月${end.getUTCDate()}日`; };
 
-  const clips = await prisma.clip.findMany({
-    orderBy: { collectedAt: "desc" },
-    take: 20,
-  });
+function Card({ item }: { item: News }) {
+  return <article className={`news-card ${item.supplement ? "supplement" : ""}`}><div className="news-head"><div><h3>{item.title}</h3><p className="meta">{fmt(item.date)}　·　{item.source}　·　{item.primary ? "一次情報" : "関連記事"}</p></div><span className={`badge ${item.high ? "high" : ""}`}>{item.supplement ? "30日以内" : `重要度 ${item.high ? "高" : "中"}`}</span></div><p className="summary">{item.summary}</p><dl className="details"><div><dt>主な数値・事実</dt><dd>{item.facts}</dd></div><div><dt>企画・設計への示唆</dt><dd>{item.insight}</dd></div><div><dt>継続して追跡</dt><dd>{item.followUp}</dd></div></dl><div className="news-foot"><div className="tags"><b>{item.company}</b><span>{item.product}</span>{item.tags.map((tag) => <span key={tag}>{tag}</span>)}</div><a href={`https://example.com/news/${item.id}`} target="_blank" rel="noreferrer">元記事 ↗</a></div></article>;
+}
 
-  return (
-    <main className="mx-auto max-w-2xl p-6">
-      <header className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">クリップ一覧</h1>
-        <form action="/auth/signout" method="post">
-          <button type="submit" className="text-sm text-slate-400 hover:text-slate-200">
-            ログアウト
-          </button>
-        </form>
-      </header>
+function Section({ business, items }: { business: Business; items: News[] }) {
+  return <section className="news-section"><div className="section-heading section-line"><div className="section-title"><i className={business === "locker" ? "orange" : ""} /><h2>{labels[business]}</h2><span>{items.length}件</span></div><p>{business === "delivery" ? "戸建て · 宅配ボックス · 機能門柱 · 外構" : "マルチロッカー · セルフ発送 · 競合・類似サービス"}</p></div><div className="news-list">{items.map((item) => <Card key={item.id} item={item} />)}</div></section>;
+}
 
-      {clips.length === 0 ? (
-        <p className="text-sm text-slate-400">まだクリップがありません。</p>
-      ) : (
-        <ul className="space-y-3">
-          {clips.map((clip) => (
-            <li key={clip.id} className="rounded-md border border-slate-800 p-4">
-              <p className="font-medium">{clip.title}</p>
-              {clip.source ? <p className="mt-1 text-xs text-slate-500">{clip.source}</p> : null}
-            </li>
-          ))}
-        </ul>
-      )}
-    </main>
-  );
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const user = await getCurrentUser();
+  if (user.status === "unavailable") return <main className="empty-state"><p>認証状態を確認できませんでした。しばらくしてから再読み込みしてください。</p></main>;
+  if (user.status === "unauthenticated") redirect("/login");
+  const params = await searchParams;
+  const business = params.business === "delivery" || params.business === "locker" ? params.business : "all";
+  const source = params.source === "primary" || params.source === "related" ? params.source : "all";
+  const importance = params.importance === "high" || params.importance === "medium" ? params.importance : "all";
+  const parsedWeek = Number(params.week ?? 0); const weekOffset = Number.isInteger(parsedWeek) && parsedWeek >= -8 && parsedWeek <= 0 ? parsedWeek : 0;
+  const keyword = typeof params.keyword === "string" ? params.keyword.trim() : "";
+  const visible = NEWS.filter((item) => (item.weekOffset ?? 0) === weekOffset && (business === "all" || item.business === business) && (source === "all" || (source === "primary" ? item.primary : !item.primary)) && (importance === "all" || (importance === "high" ? item.high : !item.high)) && (!keyword || [item.title, item.company, item.product, ...item.tags].some((value) => value.includes(keyword))));
+  const query = (newWeek: number) => `/dashboard?week=${newWeek}&business=${business}&source=${source}&importance=${importance}${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ""}`;
+  const pointTitle = weekOffset === 0 ? "今週の要点" : "この週の要点";
+  return <main className="app-shell"><aside className="sidebar"><div className="brand">research<span>·</span>desk</div><p className="sidebar-label">WORKSPACE</p><nav><a className="active" href="/dashboard">▦　業界ニュース</a><a href="/dashboard">☆　保存した情報</a><a href="/dashboard">↗　書き出し</a></nav><p className="sidebar-label topic">TOPICS</p><nav><a href="/dashboard?business=delivery">宅配事業</a><a href="/dashboard?business=locker">ロッカー事業</a></nav></aside><section className="content"><header className="page-header"><div><p className="eyebrow">WEEKLY INDUSTRY BRIEF</p><h1>業界ニュース</h1></div><div className="user"><span>最終更新 8月30日 09:00</span><span className="avatar">G</span><form action="/auth/signout" method="post"><button type="submit">ログアウト</button></form></div></header><div className="week-nav"><a href={query(Math.max(-8, weekOffset - 1))}>‹</a><strong>{week(weekOffset)}</strong><a className={weekOffset === 0 ? "disabled" : ""} href={query(Math.min(0, weekOffset + 1))}>›</a></div><section className="key-points"><div className="section-heading"><h2>{pointTitle}</h2><span>{Math.min(6, visible.length)}件 · 重要度順</span></div><div className="key-grid"><div><small>宅配事業　01</small><p>{weekOffset === 0 ? "再配達削減へ、戸建て向け宅配ボックス普及策を強化" : "住宅プランへの宅配ボックス標準採用が広がる"}</p></div><div><small>ロッカー事業　02</small><p>{weekOffset === 0 ? "駅・コンビニ横断のマルチロッカー実証が拡大" : "コンビニ店頭ロッカーの共同利用を検討"}</p></div></div></section><form className="filters" method="get"><input type="hidden" name="week" value={weekOffset} /><label>事業区分<select name="business" defaultValue={business}><option value="all">すべて</option><option value="delivery">宅配事業</option><option value="locker">ロッカー事業</option></select></label><label>情報区分<select name="source" defaultValue={source}><option value="all">すべて</option><option value="primary">一次情報</option><option value="related">関連記事</option></select></label><label>重要度<select name="importance" defaultValue={importance}><option value="all">すべて</option><option value="high">高</option><option value="medium">中</option></select></label><label className="keyword">企業・商品<input name="keyword" placeholder="キーワード" defaultValue={keyword} /></label><button type="submit">絞り込む</button></form><Section business="delivery" items={visible.filter((item) => item.business === "delivery")} /><Section business="locker" items={visible.filter((item) => item.business === "locker")} />{visible.length === 0 && <div className="no-results">条件に一致する情報はありません。期間や絞り込み条件を変えてお試しください。</div>}<p className="note">※ 要約は保存済みの調査結果を表示しています。転載記事は同一発表にまとめ、一次情報と関連記事を区別しています。</p></section></main>;
 }
