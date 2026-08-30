@@ -1,0 +1,25 @@
+// クリップ収集機能そのもののドメイン設計はこのIssue（プロジェクト初期化）のスコープ外。
+// ここではPrismaの配線が通っていることを示す最小限のモデルだけを置く。実際の収集条件・
+// 要約結果の保存形式は今後のIssueで拡張する。
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Clip {
+  id          String   @id @default(cuid())
+  title       String
+  url         String?  @db.Text
+  content     String?  @db.Text
+  source      String?
+  collectedAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("clips")
+}
