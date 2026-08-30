@@ -48,6 +48,32 @@ enum IndustryImportance {
   REFERENCE
 }
 
+enum CollectionRunStatus {
+  RUNNING
+  SUCCEEDED
+  PARTIAL
+  FAILED
+}
+
+model CollectionRun {
+  id              String            @id @default(cuid())
+  startedAt       DateTime          @default(now())
+  finishedAt      DateTime?
+  targetFrom      DateTime
+  targetTo        DateTime
+  supplementalFrom DateTime?
+  status          CollectionRunStatus @default(RUNNING)
+  fetchedCount    Int               @default(0)
+  selectedCount   Int               @default(0)
+  insertedCount   Int               @default(0)
+  duplicateCount  Int               @default(0)
+  failedCount     Int               @default(0)
+  errors          Json?
+
+  @@index([startedAt])
+  @@map("collection_runs")
+}
+
 enum IndustryPeriodScope {
   IN_SCOPE
   PAST_30_DAYS_SUPPLEMENT
