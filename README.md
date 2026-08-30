@@ -36,3 +36,12 @@ curl -X POST https://research-desk.gucchii.com/api/collection/weekly \
 から補足し、同じURLを再実行しても登録しない。レスポンスの `runId` と件数を運用ログへ残す。
 取得元の規約・robots.txtに従い、必要以上の本文転載は行わない。フィード障害時はHTTPレスポンスの
 `status` が `PARTIAL` または `FAILED` になり、既存データは変更されない。
+
+### ChatGPTのMCP連携
+
+ChatGPTの接続設定で、Research DeskのMCPサーバーURL（`https://research-desk.gucchii.com/api/mcp`）と、
+サーバー側で設定した `COLLECTION_MCP_SECRET` をBearer認証として登録する。利用できるツールは
+`research_desk_import_weekly_report` で、ChatGPTが検索・要約した記事をJSONとして渡す。記事は
+`DELIVERY`（宅配事業）または `LOCKER`（ロッカー事業）に分け、1回あたり全体6件・各事業3件までとする。
+同じURLを再送しても重複として集計されるため、毎週日曜日18:00（Asia/Tokyo）の定期タスクから安全に再実行できる。
+Bearerトークンはプロンプト本文へ書かず、ChatGPTの接続設定とサーバー環境変数だけで管理する。
