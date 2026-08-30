@@ -1,0 +1,39 @@
+{
+  "name": "research-desk",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.34.5",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "build:ci": "prisma generate && next build",
+    "version": "node scripts/version-changelog.mjs",
+    "env:init": "cp -n .env.local.example .env.local && echo '.env.local を編集してください'",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:seed:ci": "node prisma/seed-ci.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.0.0",
+    "@supabase/ssr": "^0.12.0",
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^17.0.0",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.0.0",
+    "@tailwindcss/postcss": "^4.0.0",
+    "@types/node": "^24.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-next": "^16.0.0",
+    "prisma": "^6.0.0",
+    "tailwindcss": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}
