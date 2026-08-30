@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { DEV_LOGIN_COOKIE_NAME, devLoginCookieValue, isDevLoginBypassEnabled } from "@/lib/dev-login";
+import { getRequestOrigin, safeNextPath } from "@/lib/request-origin";
 
 // CI（Playwrightでのスクリーンショット撮影）・ローカル開発専用の認証バイパス導線。
 // NODE_ENV==="production"、またはCI_LOGIN_BYPASS_SECRET未設定では常に404にする
@@ -14,9 +15,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "not_available" }, { status: 404 });
   }
 
-  const url = new URL(request.url);
-  const next = url.searchParams.get("next") ?? "/dashboard";
-  const response = NextResponse.redirect(new URL(next, url.origin));
+  const origin = getRequestOrigin(request);
+  const next = safeNextPath(new URL(request.url).searchParams.get("next"));
+  const response = NextResponse.redirect(`${origin}${next}`);
 
   response.cookies.set(DEV_LOGIN_COOKIE_NAME, value, {
     httpOnly: true,

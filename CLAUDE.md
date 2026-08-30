@@ -184,3 +184,23 @@ Secretsや環境変数／課金・決済／大規模な依存関係の更新／`
 
 **callerに書ける`with:`は、参照しているタグ時点の再利用ワークフローが持つ入力だけ。**
 宣言されていない入力を渡すとワークフローの読み込み自体が失敗する。
+
+## リダイレクト先・外部へ渡すURLの組み立て
+
+**`new URL(request.url).origin`でoriginを組み立てない。** Next.js 16の`request.url`は待受アドレス
+（`http://localhost:<PORT>`）を返し、ブラウザが送った`Host`ヘッダーを反映しない。Apacheの
+リバースプロキシ配下にある本番では`https://localhost:3115`になり、Supabaseへ渡すOAuthの
+`redirect_to`が実在しないURLになる（#14）。`src/lib/request-origin.ts`の`getRequestOrigin()`を
+使う。クエリ由来の戻り先（`?next=`）は同ファイルの`safeNextPath()`を通す。
+ローカルでは`localhost`しか使わないため再現しにくく、**本番でだけログインが失敗する**という
+形で出る。
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->
