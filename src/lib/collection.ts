@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export const COLLECTION_LIMIT = 6;
@@ -66,7 +67,8 @@ function selectCandidates(candidates: Candidate[]): Candidate[] {
 
 function toIndustryInformation(item: Candidate, canonicalId?: string) {
   const normalizedUrl = item.url;
-  return { business: item.business, informationType: item.informationType, title: item.title, originalUrl: item.url, normalizedUrl, urlHash: createHash("sha256").update(normalizedUrl).digest("hex"), sourceName: item.sourceName, publisher: item.publisher, isPrimarySource: false, publishedAt: item.publishedAt, importance: item.importance, keywords: item.keywords, tags: item.tags, periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE", canonicalId };
+  const data: Prisma.IndustryInformationUncheckedCreateInput = { business: item.business, informationType: item.informationType, title: item.title, originalUrl: item.url, normalizedUrl, urlHash: createHash("sha256").update(normalizedUrl).digest("hex"), sourceName: item.sourceName, publisher: item.publisher, isPrimarySource: false, publishedAt: item.publishedAt, importance: item.importance, keywords: item.keywords, tags: item.tags, periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE" };
+  return canonicalId ? { ...data, canonicalId } : data;
 }
 
 export async function runWeeklyCollection(now = new Date()): Promise<CollectionResult> {
