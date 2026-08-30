@@ -32,6 +32,24 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
   （`AuthRetryableFetchError` / 429）」を区別する。後者をログイン画面へ差し戻すと、電波の悪い
   場所で開いただけの利用者がログインし直しになるため
 
+### リダイレクト先のoriginは`request.url`から作らない
+
+**Next.js 16の`request.url`は待受アドレス（`http://localhost:<PORT>`）を返し、ブラウザが送った
+`Host`ヘッダーを反映しない。** `next dev -p 27014`に`Host: research-desk.gucchii.com`を付けて
+リクエストしても`request.url`は`localhost:27014`のままになる（#14で実測）。
+
+そのため`new URL(request.url).origin`でoriginを組み立てると、Apacheのリバースプロキシ配下に
+ある本番では`https://localhost:3115`になる。Supabaseへ渡す`redirect_to`がこの値になると、
+Redirect URLsに載っていないURLとして扱われ、GoTrueはSite URL（`https://gucchii.com/`）へ
+フォールバックする。利用者からは**ログインすると`https://gucchii.com/?error=invalid_request&
+error_code=flow_state_already_used`へ飛ばされる**という形で見える。
+
+外部へ渡すURL・リダイレクト先は`src/lib/request-origin.ts`の`getRequestOrigin()`で組み立てる。
+`Host`（Apacheの`ProxyPreserveHost On`で保持）と`X-Forwarded-Proto`から作る形で、
+car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先は同ファイルの`safeNextPath()`を
+通す（`//evil.example`はブラウザに別オリジンとして解釈されるため、先頭が`/`かどうかだけでは
+オープンリダイレクトを防げない）。
+
 ## データベース
 
 `prisma/schema.prisma` の `Clip` モデルは、Prismaの配線が通っていることを示すための最小限の

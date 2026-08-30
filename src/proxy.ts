@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { DEV_LOGIN_COOKIE_NAME, verifyDevLoginCookieValue } from "@/lib/dev-login";
+import { getRequestOrigin } from "@/lib/request-origin";
 import { updateSession } from "@/lib/supabase/middleware";
 
 // Next.js 16ではmiddleware.tsではなくproxy.tsを使う
@@ -12,7 +13,9 @@ export default async function proxy(request: NextRequest) {
 
   const { response, user } = await updateSession(request);
   if (!user) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    // request.url は待受アドレス（localhost:<PORT>）なので、リダイレクト先の組み立てには使わない
+    // （src/lib/request-origin.ts）。
+    return NextResponse.redirect(`${getRequestOrigin(request)}/login`);
   }
 
   return response;
