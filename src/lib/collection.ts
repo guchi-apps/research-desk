@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 export const COLLECTION_LIMIT = 6;
@@ -7,6 +7,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 type Business = "DELIVERY" | "LOCKER";
 type InformationType = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "QUALITY_SAFETY" | "OVERSEAS_CASE" | "OTHER";
 type Candidate = { business: Business; title: string; url: string; sourceName: string; publisher: string | null; publishedAt: Date; isSupplemental: boolean; informationType: InformationType; importance: "HIGH" | "MEDIUM" | "REFERENCE"; keywords: string[]; tags: string[] };
+type InformationTypeValue = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "RECRUITMENT_PARTNERSHIP" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "CONSTRUCTION" | "QUALITY_SAFETY" | "PATENT" | "OVERSEAS_CASE" | "OTHER";
+type ImportanceValue = "HIGH" | "MEDIUM" | "REFERENCE";
 
 export type CollectionResult = { runId: string; status: "SUCCEEDED" | "PARTIAL" | "FAILED"; targetFrom: string; targetTo: string; supplementalFrom: string; fetchedCount: number; selectedCount: number; insertedCount: number; duplicateCount: number; failedCount: number; errors: string[] };
 
@@ -21,12 +23,123 @@ function field(item: string, name: string): string | null {
   return match?.[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim() ?? null;
 }
 
-function normalizeUrl(value: string): string {
+export function normalizeUrl(value: string): string {
   try {
     const url = new URL(value); url.hash = "";
     for (const key of [...url.searchParams.keys()]) if (/^(utm_|fbclid$|gclid$|mc_cid$|mc_eid$)/i.test(key)) url.searchParams.delete(key);
     return url.toString().replace(/\/$/, "");
   } catch { return value.trim().replace(/\/$/, ""); }
+}
+
+export type WeeklyReportArticle = {
+  business: Business;
+  informationType: InformationTypeValue;
+  title: string;
+  url: string;
+  sourceName: string;
+  publisher?: string | null;
+  isPrimarySource?: boolean;
+  publishedAt?: string | null;
+  occurredAt?: string | null;
+  content?: string | null;
+  summary?: string | null;
+  extractedMetrics?: Prisma.InputJsonValue | null;
+  implications?: string | null;
+  importance?: ImportanceValue;
+  targetCompany?: string | null;
+  targetProduct?: string | null;
+  keywords?: string[];
+  tags?: string[];
+  periodScope?: "IN_SCOPE" | "PAST_30_DAYS_SUPPLEMENT";
+};
+
+export type WeeklyReportInput = {
+  executedAt: string;
+  targetFrom: string;
+  targetTo: string;
+  articles: WeeklyReportArticle[];
+};
+
+export type WeeklyReportImportResult = CollectionResult & {
+  businessCounts: { DELIVERY: number; LOCKER: number };
+  duplicateBusinessCounts: { DELIVERY: number; LOCKER: number };
+};
+
+function parseDate(value: string | null | undefined, fieldName: string): Date | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) throw new Error(`${fieldName}は有効なISO 8601日時で指定してください`);
+  return date;
+}
+
+export async function importWeeklyReport(input: WeeklyReportInput): Promise<WeeklyReportImportResult> {
+  const targetFrom = parseDate(input.targetFrom, "targetFrom");
+  const targetTo = parseDate(input.targetTo, "targetTo");
+  if (!targetFrom || !targetTo || targetFrom > targetTo) throw new Error("対象期間が不正です");
+  const executedAt = parseDate(input.executedAt, "executedAt");
+  if (!executedAt) throw new Error("executedAtは必須です");
+  const supplementalFrom = new Date(targetTo.getTime() - 30 * DAY_MS);
+  const run = await prisma.collectionRun.create({ data: { startedAt: executedAt, targetFrom, targetTo, supplementalFrom } });
+  const errors: string[] = [];
+  let insertedCount = 0;
+  let duplicateCount = 0;
+  const businessCounts = { DELIVERY: 0, LOCKER: 0 };
+  const duplicateBusinessCounts = { DELIVERY: 0, LOCKER: 0 };
+  const seen = new Set<string>();
+
+  for (const [index, article] of input.articles.entries()) {
+    const normalizedUrl = normalizeUrl(article.url);
+    if (seen.has(normalizedUrl)) {
+      duplicateCount++;
+      duplicateBusinessCounts[article.business]++;
+      continue;
+    }
+    seen.add(normalizedUrl);
+    try {
+      const existing = await prisma.industryInformation.findUnique({ where: { normalizedUrl }, select: { id: true } });
+      if (existing) {
+        duplicateCount++;
+        duplicateBusinessCounts[article.business]++;
+        continue;
+      }
+      await prisma.industryInformation.create({ data: {
+        business: article.business,
+        informationType: article.informationType,
+        title: article.title,
+        originalUrl: article.url,
+        normalizedUrl,
+        urlHash: createHash("sha256").update(normalizedUrl).digest("hex"),
+        sourceName: article.sourceName,
+        publisher: article.publisher ?? null,
+        isPrimarySource: article.isPrimarySource ?? false,
+        publishedAt: parseDate(article.publishedAt, `articles[${index}].publishedAt`),
+        occurredAt: parseDate(article.occurredAt, `articles[${index}].occurredAt`),
+        content: article.content ?? null,
+        summary: article.summary ?? null,
+        extractedMetrics: article.extractedMetrics ?? undefined,
+        implications: article.implications ?? null,
+        importance: article.importance ?? "REFERENCE",
+        targetCompany: article.targetCompany ?? null,
+        targetProduct: article.targetProduct ?? null,
+        keywords: article.keywords ?? [],
+        tags: article.tags ?? [],
+        periodScope: article.periodScope ?? "IN_SCOPE",
+      } });
+      insertedCount++;
+      businessCounts[article.business]++;
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        duplicateCount++;
+        duplicateBusinessCounts[article.business]++;
+      } else {
+        errors.push(`ARTICLE_INSERT_FAILED: 記事${index + 1}件目の登録に失敗しました`);
+      }
+    }
+  }
+  const status = errors.length > 0 ? (insertedCount > 0 ? "PARTIAL" : "FAILED") : "SUCCEEDED";
+  const result = { runId: run.id, status, targetFrom: targetFrom.toISOString(), targetTo: targetTo.toISOString(), supplementalFrom: supplementalFrom.toISOString(), fetchedCount: input.articles.length, selectedCount: input.articles.length, insertedCount, duplicateCount, failedCount: errors.length, errors, businessCounts, duplicateBusinessCounts } as WeeklyReportImportResult;
+  await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: result.fetchedCount, selectedCount: result.selectedCount, insertedCount, duplicateCount, failedCount: errors.length, errors } });
+  return result;
 }
 
 function similarTitle(left: string, right: string): boolean {
