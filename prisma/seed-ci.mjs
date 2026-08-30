@@ -21,11 +21,43 @@ const DUMMY_CLIPS = [
   },
 ];
 
+const DUMMY_INDUSTRY_ITEMS = [
+  {
+    business: "DELIVERY",
+    informationType: "新商品",
+    title: "サンプル: 戸建て向け宅配ボックスの新商品",
+    url: "https://example.com/industry/delivery-sample",
+    normalizedUrl: "https://example.com/industry/delivery-sample",
+    sourceName: "サンプル一次情報",
+    publisher: "サンプルメーカー",
+    publishedAt: new Date("2026-08-25T00:00:00.000Z"),
+    importance: "MEDIUM",
+    tags: ["宅配", "新商品"],
+    subjects: ["宅配ボックス"],
+  },
+  {
+    business: "LOCKER",
+    informationType: "導入事例・採用",
+    title: "サンプル: 駅への宅配ロッカー導入事例",
+    url: "https://example.com/industry/locker-sample",
+    normalizedUrl: "https://example.com/industry/locker-sample",
+    sourceName: "サンプル一次情報",
+    publisher: "サンプル運営会社",
+    publishedAt: new Date("2026-08-26T00:00:00.000Z"),
+    importance: "HIGH",
+    tags: ["ロッカー", "導入・提携"],
+    subjects: ["PUDO"],
+  },
+];
+
 async function main() {
   for (const clip of DUMMY_CLIPS) {
     await prisma.clip.create({ data: clip });
   }
-  console.log(`Seeded ${DUMMY_CLIPS.length} clip(s) for CI.`);
+  for (const item of DUMMY_INDUSTRY_ITEMS) {
+    await prisma.industryItem.create({ data: item });
+  }
+  console.log(`Seeded ${DUMMY_CLIPS.length} clip(s) and ${DUMMY_INDUSTRY_ITEMS.length} industry item(s) for CI.`);
 }
 
 main()

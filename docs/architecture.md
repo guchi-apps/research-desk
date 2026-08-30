@@ -52,9 +52,17 @@ car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先
 
 ## データベース
 
-`prisma/schema.prisma` の `Clip` モデルは、Prismaの配線が通っていることを示すための最小限の
-プレースホルダーで、実際の収集条件・要約結果の保存形式は未設計。「収集」「要約」機能を実装する
-Issueでスキーマを拡張・見直すこと。
+`Clip` は既存の手動クリップ互換として残し、業界情報は `IndustryItem` に分離する。`business` は
+`DELIVERY`（宅配）または `LOCKER`（ロッカー）で固定し、`informationType`・`importance`・
+`publishedAt`・JSON形式の `metrics` / `subjects` / `tags` で検索と週報生成に利用する。
+`normalizedUrl` に一意制約を置き、同じURLの再取り込みを防ぐ。転載や類似発表を関連付けるため、
+代表情報への `primaryItemId` と `relatedUrls` も持つ。
+
+`CollectionRun` は対象期間、30日補足期間、取得・選定・登録・重複・失敗件数、エラー内容を保存する。
+収集処理は `src/lib/collection.ts` にあり、公開RSSを取得して直近7日間を優先し、候補が少ない場合に
+30日以内の候補を補足する。手動実行またはスケジューラーから `POST /api/collection/weekly` を呼び、
+`Authorization: Bearer $COLLECTION_CRON_SECRET` を使う。RSS本文は保存せず、タイトル・URL・取得元を
+保存するため、転載や著作権上の全文保存を避けられる。
 
 初回マイグレーション（`prisma/migrations/20260830000000_init/`）は、CI環境にライブDBが無い状態で
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
