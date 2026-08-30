@@ -1,6 +1,4 @@
-// クリップ収集機能そのもののドメイン設計はこのIssue（プロジェクト初期化）のスコープ外。
-// ここではPrismaの配線が通っていることを示す最小限のモデルだけを置く。実際の収集条件・
-// 要約結果の保存形式は今後のIssueで拡張する。
+// Clip は汎用クリップの配線確認用モデルとして残し、業界情報は専用モデルで管理する。
 
 datasource db {
   provider = "mysql"
@@ -29,44 +27,25 @@ enum IndustryBusiness {
   LOCKER
 }
 
+enum IndustryInformationType {
+  NEW_PRODUCT
+  COMPETITOR
+  INTRODUCTION_CASE
+  RECRUITMENT_PARTNERSHIP
+  POLICY_SUBSIDY
+  MARKET_STATISTICS
+  USER_ISSUE
+  CONSTRUCTION
+  QUALITY_SAFETY
+  PATENT
+  OVERSEAS_CASE
+  OTHER
+}
+
 enum IndustryImportance {
   HIGH
   MEDIUM
   REFERENCE
-}
-
-model IndustryItem {
-  id                   String            @id @default(cuid())
-  business             IndustryBusiness
-  informationType      String
-  title                String
-  url                  String            @db.Text
-  normalizedUrl        String            @db.VarChar(512)
-  sourceName           String?
-  publisher            String?
-  publishedAt          DateTime?
-  collectedAt          DateTime          @default(now())
-  body                 String?           @db.Text
-  summary              String?           @db.Text
-  metrics              Json?
-  implications         String?           @db.Text
-  importance           IndustryImportance @default(REFERENCE)
-  subjects             Json?
-  tags                 Json?
-  isSupplemental       Boolean           @default(false)
-  primaryItemId        String?
-  relatedUrls          Json?
-  createdAt            DateTime          @default(now())
-  updatedAt            DateTime          @updatedAt
-
-  primaryItem          IndustryItem?     @relation("IndustryItemDuplicates", fields: [primaryItemId], references: [id])
-  duplicates           IndustryItem[]    @relation("IndustryItemDuplicates")
-
-  @@unique([normalizedUrl])
-  @@index([business, publishedAt])
-  @@index([business, informationType])
-  @@index([importance, publishedAt])
-  @@map("industry_items")
 }
 
 enum CollectionRunStatus {
@@ -93,4 +72,46 @@ model CollectionRun {
 
   @@index([startedAt])
   @@map("collection_runs")
+}
+
+enum IndustryPeriodScope {
+  IN_SCOPE
+  PAST_30_DAYS_SUPPLEMENT
+}
+
+model IndustryInformation {
+  id                 String                  @id @default(cuid())
+  business           IndustryBusiness
+  informationType    IndustryInformationType
+  title              String
+  originalUrl        String                  @db.Text
+  normalizedUrl      String                  @unique @db.VarChar(512)
+  urlHash            String                  @unique @db.Char(64)
+  sourceName         String
+  publisher          String?
+  isPrimarySource    Boolean                 @default(false)
+  publishedAt        DateTime?
+  occurredAt         DateTime?
+  collectedAt        DateTime                @default(now())
+  content            String?                 @db.Text
+  summary            String?                 @db.Text
+  extractedMetrics   Json?
+  implications       String?                 @db.Text
+  importance         IndustryImportance      @default(REFERENCE)
+  targetCompany      String?
+  targetProduct      String?
+  keywords           Json?
+  tags               Json?
+  periodScope        IndustryPeriodScope     @default(IN_SCOPE)
+  canonicalId        String?
+  canonical           IndustryInformation?   @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
+  relatedReprints    IndustryInformation[]  @relation("IndustryInformationCanonical")
+  createdAt          DateTime                @default(now())
+  updatedAt          DateTime                @updatedAt
+
+  @@index([business, informationType])
+  @@index([importance, publishedAt])
+  @@index([periodScope, publishedAt])
+  @@index([canonicalId])
+  @@map("industry_information")
 }
