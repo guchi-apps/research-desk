@@ -27,4 +27,17 @@ export type ChangelogEntry = {
  *
  * 新しい順に並べる。
  */
-export const APP_CHANGELOG: ChangelogEntry[] = [];
+export const APP_CHANGELOG: ChangelogEntry[] = [
+  {
+    version: "0.1.1",
+    date: "2026-08-30",
+    changes: [
+      "本番環境でGoogleアカウントによるログインが正しく完了しない不具合を修正しました。ログイン後に正しいページへ戻れるようになりました。",
+    ],
+    usage: [
+      "1. https://research-desk.gucchii.com/ を開き、ログイン画面を表示する",
+      "2. 「Googleでログイン」を押す",
+      "3. Googleアカウントでの認証を完了する",
+      "4. ダッシュボード画面が表示されればログイン成功",
+    ],
+  },];
