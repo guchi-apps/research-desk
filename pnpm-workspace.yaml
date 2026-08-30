@@ -1,0 +1,19 @@
+# 依存パッケージのうち、install/postinstallの実行を許可するもの（guchi-apps/issue-deck#2378）。
+#
+# pnpm 10系は依存のビルドスクリプトを既定で実行せず、**警告だけ出して終了コード0で
+# 素通りする**。承認は対話的な `pnpm approve-builds` でしか求められないため、CIや無人実行
+# では「実行されていないことに誰も気づかない」形になる。Prismaはこの段でクエリエンジンを
+# 取りに行くので、承認が無いとエンジンが無いまま先へ進む。
+#
+# **ビルドスクリプトを持つ依存を足したら、`pnpm approve-builds` を実行してこのファイルの
+# 差分をコミットすること。** 承認しないままでもインストールは成功扱いになる。
+#
+# **効くのはCIとローカルだけ。** `deploy.yml` が作るtarにこのファイルは入っておらず、
+# VPS上の `pnpm install --prod` はこの承認を見ない（本番で要る `prisma generate` は
+# アプリ自身の `postinstall` なので承認の対象外）。
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  prisma: true
+  sharp: true
+  unrs-resolver: true
