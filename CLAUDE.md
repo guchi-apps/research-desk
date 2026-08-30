@@ -48,6 +48,17 @@ Next.js 16の `PageProps` / `LayoutProps` / `RouteContext` は `.next/types` へ
 **依存を足したら `pnpm approve-builds` を実行し、`pnpm-workspace.yaml` の差分をコミットする。**
 pnpm 10系は依存のビルドスクリプトを既定で実行せず、警告だけ出して終了コード0で素通りする。
 
+**`package.json` に `"postinstall": "prisma generate"` を持たせ、`prisma` は
+`devDependencies` ではなく `dependencies` に置く**（#3）。`typecheck`（`tsc --noEmit`）は
+Prisma Clientの生成物を型として読むが、生成しているのは `build:ci`（`prisma generate && next build`）
+だけなので、生成前に `typecheck` を回すと
+`Module '"@prisma/client"' has no exported member 'PrismaClient'` と、そこから派生した
+`implicitly has an 'any' type` で落ちる。`pnpm install` の副作用で生成が残っているかどうかに
+結果が左右されるため、**同じコミットでCIが通ったり落ちたりする**という分かりにくい形になる。
+`prisma` をdependencies側に置くのは、`deploy.yml` がVPS上で走らせる
+`pnpm install --prod --frozen-lockfile` からもCLIを見えるようにするため（devDependenciesのままだと
+本番のpostinstallが `prisma: not found` で落ちる）。
+
 **`eslint.config.mjs` は `eslint-config-next` のサブパスエクスポート
 （`eslint-config-next/core-web-vitals` / `eslint-config-next/typescript`）を直接importする。**
 `@eslint/eslintrc` の `FlatCompat().extends("next/core-web-vitals", ...)` という旧パターンを

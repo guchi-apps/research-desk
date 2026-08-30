@@ -10,6 +10,7 @@
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "build:ci": "prisma generate && next build",
+    "postinstall": "prisma generate",
     "version": "node scripts/version-changelog.mjs",
     "env:init": "cp -n .env.local.example .env.local && echo '.env.local を編集してください'",
     "db:migrate:deploy": "prisma migrate deploy",
@@ -21,6 +22,7 @@
     "@supabase/supabase-js": "^2.45.0",
     "dotenv": "^17.0.0",
     "next": "^16.0.0",
+    "prisma": "^6.0.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -32,7 +34,6 @@
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
     "eslint-config-next": "^16.0.0",
-    "prisma": "^6.0.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.0.0"
   }

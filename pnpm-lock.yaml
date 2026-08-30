@@ -23,6 +23,9 @@ importers:
       next:
         specifier: ^16.0.0
         version: 16.3.3(@babel/core@7.29.7)(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      prisma:
+        specifier: ^6.0.0
+        version: 6.19.3(typescript@5.9.3)
       react:
         specifier: ^19.0.0
         version: 19.2.8
@@ -51,9 +54,6 @@ importers:
       eslint-config-next:
         specifier: ^16.0.0
         version: 16.3.3(@typescript-eslint/parser@8.68.0(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3))(eslint@9.39.5(jiti@2.7.0))(typescript@5.9.3)
-      prisma:
-        specifier: ^6.0.0
-        version: 6.19.3(typescript@5.9.3)
       tailwindcss:
         specifier: ^4.0.0
         version: 4.3.3
