@@ -66,22 +66,91 @@ car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先
 事業区分・情報区分、重要度・公開日、対象期間・公開日、転載グループには複合／検索用インデックスを
 付けている。これにより、後続の検索・フィルター・週報生成は公開日を基準に必要な情報を絞り込める。
 
-## ChatGPT向けMCP連携
+## AIDE向けサーバー間連携API（週報登録）
 
-`/api/mcp` は、ChatGPTなどのリモートMCPクライアントから週報を受け取るためのNode.js Route Handler。
-`initialize`、`tools/list`、`tools/call` をJSON-RPCで提供し、現在のツールは
-`research_desk_import_weekly_report` のみとする。書き込みツールなので、接続設定から送られるBearerトークンを
-サーバー環境変数 `COLLECTION_MCP_SECRET` と比較する。トークンをプロンプトやレスポンスへ含めない。
+`POST /api/internal/weekly-report` は、AIDEのMCPツール
+（`aide_research_desk_import_weekly_report`）から週報を受け取るNode.js Route Handler（#31）。
 
-週報の登録は `src/lib/collection.ts` の `importWeeklyReport()` が担当する。1回あたり全体6件、各事業3件までを
-入力検証し、`normalizedUrl` の事前確認とDBの一意制約（競合時はP2002）で再送を重複として処理する。
-登録結果は `CollectionRun` に保存し、新規・重複件数と `DELIVERY`／`LOCKER` 別の件数を返す。
-レート制限はプロセス内で認証済みクライアントごとに1分20回までとするため、複数プロセス環境では
-リバースプロキシ側の制限も併用する。
+当初（#27）はChatGPTが直接繋ぐ独立MCPサーバー（`/api/mcp`）として作ったが、静的Bearer認証の
+独立MCPはChatGPT側のMCP認証方式と運用が合わず、アプリごとにChatGPT接続を増やすことにもなる。
+既にChatGPTと接続・認証済みのAIDEを共通窓口にする方針へ変え、`/api/mcp`（JSON-RPCの
+`initialize`・`tools/list`・`tools/call`）は削除した。ChatGPTはAIDEまでしか繋がらないため、
+Research Deskの認証情報はChatGPTへ露出しない。
+
+認証は`src/lib/internal-auth.ts`の`requireInternalApiKey()`で、環境変数`INTERNAL_API_KEY`との
+タイミングセーフ比較1本。**未設定のときは素通りではなく503を返す**——設定漏れがそのまま
+認証なしの公開に化けるのを防ぐ。不一致は401。パス・環境変数名はフリートの他アプリ
+（dayspan・myroom・subscription-lists・ops-dashboard）の`/api/internal/*` + `INTERNAL_API_KEY`に
+揃えてあり、AIDE側も`AIDE_<APP>_URL` / `AIDE_<APP>_TOKEN`で揃う。呼び出し元は同一VPS上のAIDE
+（`127.0.0.1`）だけを想定しており、外部公開は要らない。`src/proxy.ts`のmatcherは`/dashboard`
+配下だけなので、このパスはSupabaseへ問い合わせずに素通しされる。
+
+週報の登録は`src/lib/collection.ts`の`importWeeklyReport()`が担当する（#27から流用）。1回あたり
+全体6件、各事業3件までを入力検証し、`normalizedUrl`の事前確認とDBの一意制約（競合時はP2002）で
+再送を重複として処理する。登録結果は`CollectionRun`に保存し、新規・重複件数と`DELIVERY`／
+`LOCKER`別の件数を返す。レート制限はプロセス内で認証済みクライアントごとに1分20回までとするため、
+複数プロセス環境ではリバースプロキシ側の制限も併用する。シークレットと入力本文はログへ出さない。
 
 初回マイグレーション（`prisma/migrations/20260830000000_init/`）は、CI環境にライブDBが無い状態で
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
 を使って生成した（`prisma migrate dev`と違いDB接続を必要としない）。
+
+**2回目以降の増分マイグレーションも、DB接続なしで生成できる。** `--from-migrations`は
+シャドウDBを要求するので使わず、**変更前のスキーマをgitから取り出して`--from-schema-datamodel`に
+渡す**（#37）。ローカルに`.env.local`が無い環境でも生成でき、`prisma migrate dev`のように
+開発用DBを作らずに済む。
+
+```bash
+git show HEAD:prisma/schema.prisma > /tmp/schema-old.prisma
+pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
+  --to-schema-datamodel prisma/schema.prisma --script \
+  > prisma/migrations/<YYYYMMDDHHMMSS>_<name>/migration.sql
+```
+
+出力先はリダイレクトで作る（`prisma.config.ts`の`quiet: true`が効いているのでstdoutにSQL以外は
+混ざらない。混ざったときの実害は`guchi-apps/aide-bot#9`）。
+
+## 業界ニュース画面（`/dashboard`）
+
+画面は`industry_information`の表示専用で、書き込みはAIDE経由の`POST /api/internal/weekly-report`
+だけが行う（#32）。クエリの組み立てと表示用の整形は`src/lib/industry-information.ts`に置き、
+`src/app/dashboard/page.tsx`はその結果を描くだけにしてある。1週ぶんは全体6件・各事業3件までなので、
+絞り込み後の件数はそのまま描画してよい大きさに収まる。
+
+### 週の区切りはJSTの月曜0時
+
+`?week=`は今週を`0`とするオフセットで、`-8`まで遡れる。週の範囲は**JST（UTC+9）の月曜0時**から
+7日間で、サーバーのタイムゾーン設定に結果を左右させないため`Date`のローカルメソッドは使わず、
+オフセットを足してUTCとして扱う（`getWeekRange()`）。
+
+どの週に出すかは公開日（`publishedAt`）で決める。ただし例外が2つある。
+
+- **補足（`periodScope=PAST_30_DAYS_SUPPLEMENT`）は、登録した収集ラン（`CollectionRun`）の
+  対象期間が重なる週に出す。** 補足は過去30日から拾った記事で、公開日は対象週より前になる。
+  公開日で絞ると「その週の週報として登録したのに画面に出てこない」になる
+- 公開日が未設定の記事も同じく収集ランの対象期間で出す（どの週にも出てこなくなるため）
+
+`IndustryInformation.collectionRunId`は`importWeeklyReport()`・`runWeeklyCollection()`が登録時に
+埋める（#37）。これで「1回の週報として登録した記事」が本体・補足そろって同じ週に出る。判定は
+**期間の重なり**（`targetFrom < 週の終わり` かつ `targetTo > 週の始まり`）で、`targetTo`が翌週の
+月曜0時ちょうどでも翌週へはみ出さない。逆に、対象期間が週境界をまたぐラン
+（`runWeeklyCollection()`の直近7日）では補足が隣り合う2週の両方に出る——本体の記事も公開日で
+2週へ分かれるため、揃えるという目的とは整合する。
+
+**収集ランに紐付いていない記事（#37より前に登録したもの）は、従来どおり収集日（`collectedAt`）の
+週で拾う。** 移行データは作っていないので、この分岐を消すと過去の補足が画面から消える。
+
+### 絞り込みはクエリ側で行う
+
+事業区分・情報区分（`isPrimarySource`）・重要度・キーワードは、すべてPrismaの`where`へ渡す。
+並び順はMySQL/MariaDBのENUMが**定義順**で並ぶ性質に乗せており、`periodScope`（IN_SCOPE→補足）・
+`importance`（HIGH→MEDIUM→REFERENCE）をそのまま`asc`で指定すると「補足は後ろ・重要度順」になる
+（`prisma/migrations/*/migration.sql`のENUM定義順が正）。
+
+キーワードは、文字列列（タイトル・要約・対象企業・対象商品・情報源・発行元）が**部分一致**、
+JSON列の`keywords`・`tags`が**要素の完全一致**（`array_contains` = `JSON_CONTAINS`）になる。
+Prismaが出せるJSON列の条件が完全一致までのためで、`ロッカー`では`ロッカー事業`というタグに
+当たらない。タグは登録時の語をそのまま入れる前提で使う。
 
 ## CI撮影の認証バイパス
 

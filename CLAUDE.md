@@ -95,6 +95,24 @@ GitHub Actions上の無人実行では、その場で確認を取る相手がい
 - `.github/secrets-manifest.tsv`で**`scope`が`repo`の行に`SOURCE`が`-`のものを
   作らない。** 同期スクリプトが`op read -`を実行して必ず失敗し、GitHub側に値が
   作られないままワークフローの参照が空で通る（`guchi-apps/aide-bot#5`）
+- **環境変数を1つ足すときに触る場所は4つある**（#31）。`.env.example`に書いただけでは本番へ
+  入らない。`.github/secrets-manifest.tsv`の行、`deploy.yml`の`env:`・`envs:`・`update_env`の
+  3か所を揃えて初めて本番の`.env`に入る。`envs:`に並べ忘れるとSSH先にその変数が存在せず、
+  `update_env`が空文字を書く。**ローカルでは動くのに本番だけ401**という形で出るため気付きにくい
+  （`COLLECTION_MCP_SECRET`・`COLLECTION_CRON_SECRET`が実際にこの状態で、`/api/mcp`も
+  `/api/collection/weekly`も本番では一度も通っていなかった）。**過不足は
+  `.env.example`のキーと`deploy.yml`の`update_env`の差分で機械的に拾える**
+  （`grep -oP '^\w+(?==)' .env.example` と `grep -oP 'update_env \K\w+' .github/workflows/deploy.yml`
+  を`comm`で突き合わせる。`DB_*`など組み立て元だけの変数は除く）
+- **定期実行のワークフローが動くのはデフォルトブランチ（`develop`）のファイルだけ**（#33）。
+  `.github/workflows/collection-weekly.yml`のcronは`develop`へマージした時点で**本番に対して**
+  動き始めるが、本番の`.env`へ値が入るのは`develop`→`main`のリリースがデプロイされたとき。
+  シークレットを使う定期実行を足すときは、その間だけ401で落ちることを織り込む
+- **AIDEから呼ばれるサーバー間APIは`/api/internal/*` + 環境変数`INTERNAL_API_KEY`に揃える**（#31）。
+  dayspan・myroom・subscription-lists・ops-dashboardが全てこの形で、AIDE側も
+  `AIDE_<APP>_URL` / `AIDE_<APP>_TOKEN`で揃っている。アプリごとに独自のパス・独自のenv名を作ると、
+  AIDE側の実装とデプロイ設定だけがそのアプリ用に分岐する。**環境変数が未設定のときは素通りではなく
+  503を返す**（設定漏れが認証なしの公開に化けるのを防ぐ）。`src/lib/internal-auth.ts`
 - **待受ポートは1Passwordでもマニフェストでも管理しない。** `deploy.yml`に平文で持つ
   （`guchi-apps/docs`の`standards/ports.md`）
 

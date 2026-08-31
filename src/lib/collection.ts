@@ -124,6 +124,7 @@ export async function importWeeklyReport(input: WeeklyReportInput): Promise<Week
         keywords: article.keywords ?? [],
         tags: article.tags ?? [],
         periodScope: article.periodScope ?? "IN_SCOPE",
+        collectionRunId: run.id,
       } });
       insertedCount++;
       businessCounts[article.business]++;
@@ -178,9 +179,9 @@ function selectCandidates(candidates: Candidate[]): Candidate[] {
   return selected;
 }
 
-function toIndustryInformation(item: Candidate, canonicalId?: string) {
+function toIndustryInformation(item: Candidate, collectionRunId: string, canonicalId?: string) {
   const normalizedUrl = item.url;
-  const data: Prisma.IndustryInformationUncheckedCreateInput = { business: item.business, informationType: item.informationType, title: item.title, originalUrl: item.url, normalizedUrl, urlHash: createHash("sha256").update(normalizedUrl).digest("hex"), sourceName: item.sourceName, publisher: item.publisher, isPrimarySource: false, publishedAt: item.publishedAt, importance: item.importance, keywords: item.keywords, tags: item.tags, periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE" };
+  const data: Prisma.IndustryInformationUncheckedCreateInput = { business: item.business, informationType: item.informationType, title: item.title, originalUrl: item.url, normalizedUrl, urlHash: createHash("sha256").update(normalizedUrl).digest("hex"), sourceName: item.sourceName, publisher: item.publisher, isPrimarySource: false, publishedAt: item.publishedAt, importance: item.importance, keywords: item.keywords, tags: item.tags, periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE", collectionRunId };
   return canonicalId ? { ...data, canonicalId } : data;
 }
 
@@ -197,7 +198,7 @@ export async function runWeeklyCollection(now = new Date()): Promise<CollectionR
   for (const item of selected) {
     if (existing.some((record) => record.normalizedUrl === item.url)) { duplicateCount++; continue; }
     const canonical = existing.find((record) => record.business === item.business && similarTitle(record.title, item.title));
-    await prisma.industryInformation.create({ data: toIndustryInformation(item, canonical?.canonicalId ?? canonical?.id) }); insertedCount++;
+    await prisma.industryInformation.create({ data: toIndustryInformation(item, run.id, canonical?.canonicalId ?? canonical?.id) }); insertedCount++;
   }
   const status = errors.length === FEEDS.length ? "FAILED" : errors.length > 0 ? "PARTIAL" : "SUCCEEDED";
   await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, failedCount: errors.length, errors } });
