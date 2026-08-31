@@ -295,3 +295,23 @@ AIDE側がマージされるまでエンドツーエンドの送信は動かな�
   「aide-bot」と「AIDE本体（Gmail送信等を持つ側）」を混同しないこと
 - 画像・ZIPはRoute Handler側でもメモリ上のFormDataのまま中継するだけで、ディスク・DBへは
   一切書き込んでいない（受け入れ条件「画像は送信後も保存されない」に対応）
+
+## PWAアップデート通知（#68）
+
+PWAとしてホーム画面から起動されたままだと、ブラウザを再訪しない限り新しいデプロイに
+気づけない。`src/components/AppUpdateChecker.tsx`が`/api/app-version`（`package.json`の
+`version`を`force-dynamic`＋`no-store`で返すだけのRoute Handler）を10分間隔と
+`visibilitychange`復帰時にポーリングし、現在のバージョンと異なれば画面下部にバナーを表示する。
+
+**Service Workerは使わない。** issue-deckも同名の`AppUpdateChecker`コンポーネントを持つが、
+アップデート検知にService Workerは使っておらず（`public/sw.js`はPush通知の受信専用）、
+同じバージョンポーリング方式を踏襲した。オフライン対応（Service Workerによるキャッシュ）は
+`guchi-apps/docs`の`standards/tech-stack.md`のとおり必須ではないため、今回もあわせて導入は
+していない。
+
+**issue-deck側と違い、バックグラウンド復帰時に自動リロードはしない。** issue-deckの元実装は
+「復帰直後は未保存入力を失う心配がない安全なタイミング」として自動リロードするが、
+`/dashboard/image-mail`（#64）は画像選択・件名入力という未保存状態を持つ画面のため、
+気づかないうちにリロードされると入力が消える。更新は必ずバナーの「更新する」ボタン経由の
+ユーザー操作でのみ行う。今後、フォーム状態を持つ画面を追加する場合も、この前提（自動リロード
+なし）を崩さないよう注意する。
