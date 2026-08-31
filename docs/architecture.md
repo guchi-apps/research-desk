@@ -20,13 +20,13 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 |---|---|
 | `/login` | ログイン画面（`/auth/signin`への素のリンクのみ。JS不要） |
 | `/auth/signin` | Route Handler。サーバー側でOAuth認可URLを組み立てて302 |
-| `/auth/callback` | Route Handler。`code`をセッションと交換し`/dashboard`へ |
+| `/auth/callback` | Route Handler。`code`をセッションと交換し`/`（トップ画面）へ |
 | `/auth/signout` | Route Handler（POST）。セッションを破棄し`/login`へ |
 | `/api/dev/login` | CI・ローカル開発専用のバイパス（`NODE_ENV!=="production"`かつ`CI_LOGIN_BYPASS_SECRET`設定時のみ有効） |
 
-- `src/proxy.ts`（Next.js 16の`middleware.ts`相当）は`/dashboard`配下だけを保護対象にしている。
-  全経路を対象にすると静的アセット（アイコン等）の除外漏れを踏みやすいため、保護範囲を絞って
-  回避した
+- `src/proxy.ts`（Next.js 16の`middleware.ts`相当）はトップ画面（`/`）と`/dashboard`配下だけを
+  保護対象にしている。全経路を対象にすると静的アセット（アイコン等）の除外漏れを踏みやすいため、
+  保護範囲を絞って回避した（`matcher: ["/", "/dashboard/:path*"]`）
 - ログイン可否は `ALLOWED_GOOGLE_EMAILS`（カンマ区切り）で絞る。DBにユーザーテーブルは持たない
 - `src/lib/auth.ts` の `getCurrentUser()` は「未ログイン」と「Supabaseへ疎通できず今は確認できない
   （`AuthRetryableFetchError` / 429）」を区別する。後者をログイン画面へ差し戻すと、電波の悪い
@@ -49,6 +49,12 @@ error_code=flow_state_already_used`へ飛ばされる**という形で見える�
 car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先は同ファイルの`safeNextPath()`を
 通す（`//evil.example`はブラウザに別オリジンとして解釈されるため、先頭が`/`かどうかだけでは
 オープンリダイレクトを防げない）。
+
+**`?next=`未指定時の既定の遷移先は`safeNextPath()`の`fallback`引数1箇所で管理している**（#42）。
+`/auth/callback`・`/auth/signin`・`/api/dev/login`の3ルートがこの関数を共通で呼んでおり、
+ログイン後の既定の遷移先を変える（例: トップ画面を追加してそちらへ変える）ときは、この1箇所を
+直せば3ルートすべてに一貫して効く。ルートごとに個別のフォールバック値を持たせていないため、
+一部のルートだけ直し忘れるということが起きない。
 
 ## データベース
 
@@ -109,6 +115,19 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 
 出力先はリダイレクトで作る（`prisma.config.ts`の`quiet: true`が効いているのでstdoutにSQL以外は
 混ざらない。混ざったときの実害は`guchi-apps/aide-bot#9`）。
+
+## トップ画面（`/`, #42）
+
+ログイン後の最初の画面。直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で
+最大`RECENT_LIMIT`（10）件取得し、JSTの日付基準で「今日」「昨日」「それ以前」に区分して表示する
+（`src/lib/industry-information.ts`の`listRecentIndustryInformation()`・`getRecencyLabel()`）。
+
+収集は週1回程度の想定（`COLLECTION_LIMIT`は1回6件）のため、「今日・昨日」だけに絞ると大半の日は
+空になる。そのため常に直近の記事を件数上限で取得し、区分ラベルは表示上の見出しとしてのみ使う
+（0件になる区分の見出しは出さない）。
+
+業界ニュース画面（`/dashboard`）への遷移はこの画面からのリンク（サイドバーnav・CTA）のみで、
+事業別の絞り込みや週送りはこれまでどおり`/dashboard`が担う。
 
 ## 業界ニュース画面（`/dashboard`）
 
