@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { runWeeklyCollection } from "@/lib/collection";
+import { runDailyCollection } from "@/lib/collection";
 
 export const runtime = "nodejs";
 
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
   const authenticated = hasCronSecret(request) || (await getCurrentUser()).status === "authenticated";
   if (!authenticated) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
-    return NextResponse.json(await runWeeklyCollection());
+    return NextResponse.json(await runDailyCollection());
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "collection_failed" }, { status: 500 });
   }

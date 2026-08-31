@@ -105,7 +105,7 @@ GitHub Actions上の無人実行では、その場で確認を取る相手がい
   （`grep -oP '^\w+(?==)' .env.example` と `grep -oP 'update_env \K\w+' .github/workflows/deploy.yml`
   を`comm`で突き合わせる。`DB_*`など組み立て元だけの変数は除く）
 - **定期実行のワークフローが動くのはデフォルトブランチ（`develop`）のファイルだけ**（#33）。
-  `.github/workflows/collection-weekly.yml`のcronは`develop`へマージした時点で**本番に対して**
+  `.github/workflows/collection-daily.yml`（旧`collection-weekly.yml`）のcronは`develop`へマージした時点で**本番に対して**
   動き始めるが、本番の`.env`へ値が入るのは`develop`→`main`のリリースがデプロイされたとき。
   シークレットを使う定期実行を足すときは、その間だけ401で落ちることを織り込む
 - **AIDEから呼ばれるサーバー間APIは`/api/internal/*` + 環境変数`INTERNAL_API_KEY`に揃える**（#31）。
