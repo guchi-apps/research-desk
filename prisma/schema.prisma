@@ -67,9 +67,13 @@ model CollectionRun {
   selectedCount   Int               @default(0)
   insertedCount   Int               @default(0)
   duplicateCount  Int               @default(0)
+  mergedCount     Int               @default(0)
+  excludedCount   Int               @default(0)
   failedCount     Int               @default(0)
   errors          Json?
-  industryInformation IndustryInformation[]
+  excludedArticles Json?
+  industryInformation        IndustryInformation[] @relation("IndustryInformationCollectionRun")
+  updatedIndustryInformation IndustryInformation[] @relation("IndustryInformationUpdatedByRun")
 
   @@index([startedAt])
   @@map("collection_runs")
@@ -105,7 +109,13 @@ model IndustryInformation {
   tags               Json?
   periodScope        IndustryPeriodScope     @default(IN_SCOPE)
   collectionRunId    String?
-  collectionRun      CollectionRun?          @relation(fields: [collectionRunId], references: [id], onDelete: SetNull)
+  collectionRun      CollectionRun?          @relation("IndustryInformationCollectionRun", fields: [collectionRunId], references: [id], onDelete: SetNull)
+  mergedSources      Json?
+  updateReason       String?                 @db.Text
+  updatedByRunId     String?
+  updatedByRun       CollectionRun?          @relation("IndustryInformationUpdatedByRun", fields: [updatedByRunId], references: [id], onDelete: SetNull)
+  // canonicalId/canonical/relatedReprintsは#43以降は書き込まない（過去データ互換のため列のみ残す）。
+  // 転載の統合はmergedSources／updateReason／updatedByRunIdで表現する（docs/architecture.md参照）。
   canonicalId        String?
   canonical           IndustryInformation?   @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
   relatedReprints    IndustryInformation[]  @relation("IndustryInformationCanonical")
@@ -116,6 +126,7 @@ model IndustryInformation {
   @@index([importance, publishedAt])
   @@index([periodScope, publishedAt])
   @@index([collectionRunId])
+  @@index([updatedByRunId])
   @@index([canonicalId])
   @@map("industry_information")
 }

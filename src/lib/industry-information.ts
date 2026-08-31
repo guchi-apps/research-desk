@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-// 週の区切りは利用者のいるJST（UTC+9）の月曜0時。サーバーのタイムゾーン設定に結果を
+// 週の区切りは利用者のいるJST（UTC+9）の日曜0時（#43）。サーバーのタイムゾーン設定に結果を
 // 左右させないため、Dateのローカルメソッドは使わずオフセットを足してUTCとして扱う。
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -35,12 +35,12 @@ export function parseWeekOffset(value: string | string[] | undefined): number {
   return Number.isInteger(parsed) && parsed >= OLDEST_WEEK_OFFSET && parsed <= 0 ? parsed : 0;
 }
 
-/** 週送りのオフセットから、その週（JSTの月曜0時〜翌週の月曜0時）のUTC範囲を返す。 */
+/** 週送りのオフセットから、その週（JSTの日曜0時〜翌週の日曜0時）のUTC範囲を返す。 */
 export function getWeekRange(weekOffset: number, now = new Date()): WeekRange {
   const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
-  const daysFromMonday = (jstNow.getUTCDay() + 6) % 7;
-  const mondayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromMonday + weekOffset * 7);
-  const start = new Date(mondayJst - JST_OFFSET_MS);
+  const daysFromSunday = jstNow.getUTCDay();
+  const sundayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromSunday + weekOffset * 7);
+  const start = new Date(sundayJst - JST_OFFSET_MS);
   return { start, end: new Date(start.getTime() + 7 * DAY_MS) };
 }
 
@@ -75,13 +75,15 @@ export function formatDateTime(date: Date): string {
 // ランに紐付いていない記事（#37より前に登録したもの）は、従来どおり収集日で拾う。
 function runOrCollectedCondition(range: WeekRange): Prisma.IndustryInformationWhereInput[] {
   return [
-    // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の月曜0時ちょうどでも翌週には出さない）。
+    // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の日曜0時ちょうどでも翌週には出さない）。
     { collectionRun: { targetFrom: { lt: range.end }, targetTo: { gt: range.start } } },
     { collectionRunId: null, collectedAt: { gte: range.start, lt: range.end } },
   ];
 }
 
-function weekCondition(range: WeekRange): Prisma.IndustryInformationWhereInput {
+/** 指定した週（JST日曜0時〜翌週日曜0時）に属するかどうかの絞り込み条件。`src/lib/collection.ts`の
+ * イベント統合・週あたり上限判定も、表示と同じ週の切り方に揃えるためこれを再利用する。 */
+export function weekCondition(range: WeekRange): Prisma.IndustryInformationWhereInput {
   const byRunOrCollected = runOrCollectedCondition(range);
   return {
     OR: [
@@ -125,6 +127,44 @@ export async function listIndustryInformation(filters: IndustryInformationFilter
 export async function getLastCollectedAt(): Promise<Date | null> {
   const result = await prisma.industryInformation.aggregate({ _max: { collectedAt: true } });
   return result._max.collectedAt ?? null;
+}
+
+/** 「NEW／更新」バッジ判定用の、直近の収集ランID。`collectionRunId`（作成時のラン）と
+ * `updatedByRunId`（最後に更新したラン）をこれと比較し、一致する記事だけにバッジを出す。 */
+export async function getLatestCollectionRunId(): Promise<string | null> {
+  const run = await prisma.collectionRun.findFirst({ orderBy: { startedAt: "desc" }, select: { id: true } });
+  return run?.id ?? null;
+}
+
+export type MergedSource = { url: string; normalizedUrl: string; sourceName: string; publisher: string | null; isPrimarySource: boolean; mergedAt: string; collectionRunId: string };
+
+/** `mergedSources`（統合元URLのJSON配列）を表示用の配列にする。壊れた値は無視する。 */
+export function toMergedSources(value: Prisma.JsonValue | null): MergedSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter((item): item is MergedSource => typeof item === "object" && item !== null && typeof (item as MergedSource).url === "string" && typeof (item as MergedSource).normalizedUrl === "string");
+}
+
+/** トップ画面の新着記事一覧が表示する件数の上限。週1回程度の収集想定で、直近2回ぶんの目安。 */
+export const RECENT_LIMIT = 10;
+
+/** 収集日時（JST基準の日付）から見た「今日」「昨日」「それ以前」の区分。 */
+export type RecencyLabel = "today" | "yesterday" | "earlier";
+
+/** トップ画面向けに、収集日時（`collectedAt`）が新しい順で業界情報を取得する。 */
+export async function listRecentIndustryInformation(): Promise<IndustryInformationListItem[]> {
+  return prisma.industryInformation.findMany({ orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
+}
+
+/** `date`のJST日付が`now`から見て今日・昨日・それ以前のどれかを返す。 */
+export function getRecencyLabel(date: Date, now = new Date()): RecencyLabel {
+  const target = jstParts(date);
+  const today = jstParts(now);
+  const targetDay = Date.UTC(target.year, target.month - 1, target.day);
+  const todayDay = Date.UTC(today.year, today.month - 1, today.day);
+  const diffDays = Math.round((todayDay - targetDay) / DAY_MS);
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  return "earlier";
 }
 
 /** JSON列（`keywords`・`tags`）を表示用の文字列配列にする。 */

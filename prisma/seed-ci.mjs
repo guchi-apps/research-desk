@@ -24,15 +24,15 @@ const DUMMY_CLIPS = [
 
 // 日付は固定値ではなく「実行した週」を基準に組み立てる。業界ニュース画面は今週（`?week=0`）を
 // 既定で開くため、固定日にすると時間が経つほど既定の画面が空になる。週の区切りは画面側と同じ
-// JST（UTC+9）の月曜0時に揃える（`src/lib/industry-information.ts`の`getWeekRange()`）。
+// JST（UTC+9）の日曜0時に揃える（`src/lib/industry-information.ts`の`getWeekRange()`、#43）。
 const DAY_MS = 24 * 60 * 60 * 1000;
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
 function currentWeekStart(now = new Date()) {
   const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
-  const daysFromMonday = (jstNow.getUTCDay() + 6) % 7;
-  const mondayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromMonday);
-  return new Date(mondayJst - JST_OFFSET_MS);
+  const daysFromSunday = jstNow.getUTCDay();
+  const sundayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromSunday);
+  return new Date(sundayJst - JST_OFFSET_MS);
 }
 
 const WEEK_START = currentWeekStart();
