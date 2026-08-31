@@ -66,18 +66,30 @@ car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先
 事業区分・情報区分、重要度・公開日、対象期間・公開日、転載グループには複合／検索用インデックスを
 付けている。これにより、後続の検索・フィルター・週報生成は公開日を基準に必要な情報を絞り込める。
 
-## ChatGPT向けMCP連携
+## AIDE向けサーバー間連携API（週報登録）
 
-`/api/mcp` は、ChatGPTなどのリモートMCPクライアントから週報を受け取るためのNode.js Route Handler。
-`initialize`、`tools/list`、`tools/call` をJSON-RPCで提供し、現在のツールは
-`research_desk_import_weekly_report` のみとする。書き込みツールなので、接続設定から送られるBearerトークンを
-サーバー環境変数 `COLLECTION_MCP_SECRET` と比較する。トークンをプロンプトやレスポンスへ含めない。
+`POST /api/internal/weekly-report` は、AIDEのMCPツール
+（`aide_research_desk_import_weekly_report`）から週報を受け取るNode.js Route Handler（#31）。
 
-週報の登録は `src/lib/collection.ts` の `importWeeklyReport()` が担当する。1回あたり全体6件、各事業3件までを
-入力検証し、`normalizedUrl` の事前確認とDBの一意制約（競合時はP2002）で再送を重複として処理する。
-登録結果は `CollectionRun` に保存し、新規・重複件数と `DELIVERY`／`LOCKER` 別の件数を返す。
-レート制限はプロセス内で認証済みクライアントごとに1分20回までとするため、複数プロセス環境では
-リバースプロキシ側の制限も併用する。
+当初（#27）はChatGPTが直接繋ぐ独立MCPサーバー（`/api/mcp`）として作ったが、静的Bearer認証の
+独立MCPはChatGPT側のMCP認証方式と運用が合わず、アプリごとにChatGPT接続を増やすことにもなる。
+既にChatGPTと接続・認証済みのAIDEを共通窓口にする方針へ変え、`/api/mcp`（JSON-RPCの
+`initialize`・`tools/list`・`tools/call`）は削除した。ChatGPTはAIDEまでしか繋がらないため、
+Research Deskの認証情報はChatGPTへ露出しない。
+
+認証は`src/lib/internal-auth.ts`の`requireInternalApiKey()`で、環境変数`INTERNAL_API_KEY`との
+タイミングセーフ比較1本。**未設定のときは素通りではなく503を返す**——設定漏れがそのまま
+認証なしの公開に化けるのを防ぐ。不一致は401。パス・環境変数名はフリートの他アプリ
+（dayspan・myroom・subscription-lists・ops-dashboard）の`/api/internal/*` + `INTERNAL_API_KEY`に
+揃えてあり、AIDE側も`AIDE_<APP>_URL` / `AIDE_<APP>_TOKEN`で揃う。呼び出し元は同一VPS上のAIDE
+（`127.0.0.1`）だけを想定しており、外部公開は要らない。`src/proxy.ts`のmatcherは`/dashboard`
+配下だけなので、このパスはSupabaseへ問い合わせずに素通しされる。
+
+週報の登録は`src/lib/collection.ts`の`importWeeklyReport()`が担当する（#27から流用）。1回あたり
+全体6件、各事業3件までを入力検証し、`normalizedUrl`の事前確認とDBの一意制約（競合時はP2002）で
+再送を重複として処理する。登録結果は`CollectionRun`に保存し、新規・重複件数と`DELIVERY`／
+`LOCKER`別の件数を返す。レート制限はプロセス内で認証済みクライアントごとに1分20回までとするため、
+複数プロセス環境ではリバースプロキシ側の制限も併用する。シークレットと入力本文はログへ出さない。
 
 初回マイグレーション（`prisma/migrations/20260830000000_init/`）は、CI環境にライブDBが無い状態で
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
