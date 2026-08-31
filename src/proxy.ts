@@ -22,8 +22,8 @@ export default async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // /dashboard配下だけを対象にする。全経路を対象にすると静的アセット（アイコン等）の
-  // 除外漏れを踏みやすいため、保護対象を絞って回避する
+  // トップ画面（`/`）と/dashboard配下だけを対象にする。全経路を対象にすると静的アセット
+  // （アイコン等）の除外漏れを踏みやすいため、保護対象を絞って回避する
   // （guchi-apps/docs の knowledge/nextjs-prisma.md「public/の静的ファイルはproxy.tsのmatcherに掛かる」）。
-  matcher: ["/dashboard/:path*"],
+  matcher: ["/", "/dashboard/:path*"],
 };

@@ -144,6 +144,29 @@ export function toMergedSources(value: Prisma.JsonValue | null): MergedSource[] 
   return value.filter((item): item is MergedSource => typeof item === "object" && item !== null && typeof (item as MergedSource).url === "string" && typeof (item as MergedSource).normalizedUrl === "string");
 }
 
+/** トップ画面の新着記事一覧が表示する件数の上限。週1回程度の収集想定で、直近2回ぶんの目安。 */
+export const RECENT_LIMIT = 10;
+
+/** 収集日時（JST基準の日付）から見た「今日」「昨日」「それ以前」の区分。 */
+export type RecencyLabel = "today" | "yesterday" | "earlier";
+
+/** トップ画面向けに、収集日時（`collectedAt`）が新しい順で業界情報を取得する。 */
+export async function listRecentIndustryInformation(): Promise<IndustryInformationListItem[]> {
+  return prisma.industryInformation.findMany({ orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
+}
+
+/** `date`のJST日付が`now`から見て今日・昨日・それ以前のどれかを返す。 */
+export function getRecencyLabel(date: Date, now = new Date()): RecencyLabel {
+  const target = jstParts(date);
+  const today = jstParts(now);
+  const targetDay = Date.UTC(target.year, target.month - 1, target.day);
+  const todayDay = Date.UTC(today.year, today.month - 1, today.day);
+  const diffDays = Math.round((todayDay - targetDay) / DAY_MS);
+  if (diffDays <= 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  return "earlier";
+}
+
 /** JSON列（`keywords`・`tags`）を表示用の文字列配列にする。 */
 export function toStringArray(value: Prisma.JsonValue | null): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
