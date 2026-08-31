@@ -95,6 +95,21 @@ Research Deskの認証情報はChatGPTへ露出しない。
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
 を使って生成した（`prisma migrate dev`と違いDB接続を必要としない）。
 
+**2回目以降の増分マイグレーションも、DB接続なしで生成できる。** `--from-migrations`は
+シャドウDBを要求するので使わず、**変更前のスキーマをgitから取り出して`--from-schema-datamodel`に
+渡す**（#37）。ローカルに`.env.local`が無い環境でも生成でき、`prisma migrate dev`のように
+開発用DBを作らずに済む。
+
+```bash
+git show HEAD:prisma/schema.prisma > /tmp/schema-old.prisma
+pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
+  --to-schema-datamodel prisma/schema.prisma --script \
+  > prisma/migrations/<YYYYMMDDHHMMSS>_<name>/migration.sql
+```
+
+出力先はリダイレクトで作る（`prisma.config.ts`の`quiet: true`が効いているのでstdoutにSQL以外は
+混ざらない。混ざったときの実害は`guchi-apps/aide-bot#9`）。
+
 ## 業界ニュース画面（`/dashboard`）
 
 画面は`industry_information`の表示専用で、書き込みはAIDE経由の`POST /api/internal/weekly-report`
