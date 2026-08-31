@@ -114,6 +114,8 @@ jobs:
       AIDE_BOT_URL: ${{ vars.AIDE_BOT_URL }}
       AIDE_BOT_TOKEN: ${{ secrets.AIDE_BOT_TOKEN }}
       AIDE_BOT_EMAIL: ${{ secrets.AIDE_BOT_EMAIL }}
+      AIDE_IMAGE_MAIL_URL: ${{ vars.AIDE_IMAGE_MAIL_URL }}
+      AIDE_IMAGE_MAIL_TOKEN: ${{ secrets.AIDE_IMAGE_MAIL_TOKEN }}
       TARGET_DIR: ${{ secrets.TARGET_DIR }}
       SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
 
@@ -195,6 +197,8 @@ jobs:
       AIDE_BOT_URL: ${{ vars.AIDE_BOT_URL }}
       AIDE_BOT_TOKEN: ${{ secrets.AIDE_BOT_TOKEN }}
       AIDE_BOT_EMAIL: ${{ secrets.AIDE_BOT_EMAIL }}
+      AIDE_IMAGE_MAIL_URL: ${{ vars.AIDE_IMAGE_MAIL_URL }}
+      AIDE_IMAGE_MAIL_TOKEN: ${{ secrets.AIDE_IMAGE_MAIL_TOKEN }}
       TARGET_DIR: ${{ secrets.TARGET_DIR }}
       SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
 
@@ -245,6 +249,8 @@ jobs:
           AIDE_BOT_URL: ${{ env.AIDE_BOT_URL }}
           AIDE_BOT_TOKEN: ${{ env.AIDE_BOT_TOKEN }}
           AIDE_BOT_EMAIL: ${{ env.AIDE_BOT_EMAIL }}
+          AIDE_IMAGE_MAIL_URL: ${{ env.AIDE_IMAGE_MAIL_URL }}
+          AIDE_IMAGE_MAIL_TOKEN: ${{ env.AIDE_IMAGE_MAIL_TOKEN }}
           TARGET_DIR: ${{ env.TARGET_DIR }}
         with:
           host: ${{ env.HOST }}
@@ -252,7 +258,7 @@ jobs:
           key: ${{ env.SSH_PRIVATE_KEY }}
           port: ${{ env.SSH_PORT }}
           # ここに無い変数はSSH先に存在しない。env: と同じ名前を必ず並べる。
-          envs: DATABASE_URL,MIGRATE_DATABASE_URL,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,ALLOWED_GOOGLE_EMAILS,INTERNAL_API_KEY,COLLECTION_CRON_SECRET,AIDE_BOT_URL,AIDE_BOT_TOKEN,AIDE_BOT_EMAIL,TARGET_DIR
+          envs: DATABASE_URL,MIGRATE_DATABASE_URL,NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,ALLOWED_GOOGLE_EMAILS,INTERNAL_API_KEY,COLLECTION_CRON_SECRET,AIDE_BOT_URL,AIDE_BOT_TOKEN,AIDE_BOT_EMAIL,AIDE_IMAGE_MAIL_URL,AIDE_IMAGE_MAIL_TOKEN,TARGET_DIR
           script: |
             set -euo pipefail
             cd "${TARGET_DIR}"
@@ -285,6 +291,8 @@ jobs:
             update_env AIDE_BOT_URL "$AIDE_BOT_URL"
             update_env AIDE_BOT_TOKEN "$AIDE_BOT_TOKEN"
             update_env AIDE_BOT_EMAIL "$AIDE_BOT_EMAIL"
+            update_env AIDE_IMAGE_MAIL_URL "$AIDE_IMAGE_MAIL_URL"
+            update_env AIDE_IMAGE_MAIL_TOKEN "$AIDE_IMAGE_MAIL_TOKEN"
 
             echo "Installing production dependencies..."
             corepack enable pnpm >/dev/null 2>&1 || true

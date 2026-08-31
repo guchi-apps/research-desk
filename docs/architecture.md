@@ -143,6 +143,14 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 週あたり上限・置換／除外・統合更新の実地確認まではできない。それらはコードレビューでの
 突き合わせに留める判断もありうる。
 
+**DBに依存しない画面（`/settings`等）は、`/api/dev/login`のバイパスCookie経由でcurlのまま
+確認できる**（#67）。`getCurrentUser()`はバイパスCookieがあればSupabaseへ問い合わせずに
+即座に認証済みを返すため（`src/lib/auth.ts`の`getDevLoginEmail()`が先に評価される）、
+`NEXT_PUBLIC_SUPABASE_URL`が未設定でも到達できる。一方、Prismaを呼ぶ画面（`/`・`/dashboard`）は
+`DATABASE_URL`未設定だと`PrismaClientInitializationError`になり、エラーが`loading.tsx`の
+Suspense境界内で起きるため、レスポンスは200のまま起動画面（`splash-shell`）で止まって見える
+（ステータスコードだけでは気付けない）。
+
 ## トップ画面（`/`, #42）
 
 ログイン後の最初の画面。直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で
@@ -273,3 +281,58 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 `24.screenshot-required`向け。`/api/dev/login`にアクセスするとCookieが発行され、`src/proxy.ts`と
 `src/lib/auth.ts`の両方がそのCookieを検証する（片方だけだとデータが引けず画面が空になるため対で
 実装している）。ダミーデータは `pnpm db:seed:ci`（`prisma/seed-ci.mjs`）で投入する。
+
+## 設定画面（`/settings`, #67）
+
+スマホ幅（767px以下）ではヘッダー右上のログアウトボタンが元々`.user button{display:none}`で
+隠れており、アバターも`font-size:0`で非活性表示のままだった（モバイルからログアウトする手段が
+実質無かった）。この画面を新設し、アカウント情報（メールアドレス）・ログアウト・更新履歴
+（`src/lib/changelog.ts`の`APP_CHANGELOG`。バージョンbump時に自動更新される配列で、それまで
+どの画面からも参照されていなかった）をまとめた。
+
+トップ画面・業界ニュース画面・画像を送る画面の3箇所で重複していたヘッダー右上（アバター＋
+ログアウト）は`src/components/HeaderUserMenu.tsx`に共通化し、あわせて設定画面への⚙ボタンを
+追加した。⚙ボタンは`globals.css`側で`display:none`が既定で、`@media(max-width:767px)`の
+中でだけ`display:grid`に切り替える（PC・iPadでは従来どおりアバター＋ログアウトのまま）。
+
+## 画像を社用メールに送る（#64）
+
+`/dashboard/image-mail`は、撮影・選択した写真をブラウザ内でJPEG圧縮・ZIP化し、
+`POST /api/image-mail/send`経由でAIDEへ転送する画面。**このIssueはResearch DeskとAIDEの
+2リポジトリにまたがるが、実装エージェントは担当リポジトリ以外を編集できないため、AIDE側
+（Gmail送信・件名/宛先固定・idempotency処理・履歴記録）は`guchi-apps/aide`へ別Issueとして
+切り出した。** Research Desk側は「AIDEへ送信リクエストを送るところまで」が実装範囲で、
+AIDE側がマージされるまでエンドツーエンドの送信は動かない。
+
+- **画像圧縮・ZIP化はいずれも追加依存を最小限にしている。** リサイズ・JPEG化は
+  `createImageBitmap()` + `<canvas>.toBlob()`というブラウザ標準APIのみで完結し、追加依存は
+  ZIP化の`fflate`1つだけ（`src/lib/image-mail-client.ts`）。横幅の自動段階縮小（1200→900→600px）は、
+  ZIP作成後のサイズを見てから次の横幅で作り直す素朴なループで、事前見積もりはしない
+- **送信APIは`/api/internal/*`と違う認証にしている。** `/api/internal/weekly-report`はAIDE→
+  Research Desk方向（共有シークレット）だが、`/api/image-mail/send`はブラウザ→Research Desk
+  サーバー方向のため`getCurrentUser()`によるSupabaseセッション認証を使う。Research Desk→AIDE
+  方向の送信先設定は`AIDE_IMAGE_MAIL_URL`/`AIDE_IMAGE_MAIL_TOKEN`で、`src/lib/aide-bot-notice.ts`
+  （aide-bot＝通知窓口、`AIDE_BOT_*`）とは別のAIDE本体向けの環境変数。名前が紛らわしいので、
+  「aide-bot」と「AIDE本体（Gmail送信等を持つ側）」を混同しないこと
+- 画像・ZIPはRoute Handler側でもメモリ上のFormDataのまま中継するだけで、ディスク・DBへは
+  一切書き込んでいない（受け入れ条件「画像は送信後も保存されない」に対応）
+
+## PWAアップデート通知（#68）
+
+PWAとしてホーム画面から起動されたままだと、ブラウザを再訪しない限り新しいデプロイに
+気づけない。`src/components/AppUpdateChecker.tsx`が`/api/app-version`（`package.json`の
+`version`を`force-dynamic`＋`no-store`で返すだけのRoute Handler）を10分間隔と
+`visibilitychange`復帰時にポーリングし、現在のバージョンと異なれば画面下部にバナーを表示する。
+
+**Service Workerは使わない。** issue-deckも同名の`AppUpdateChecker`コンポーネントを持つが、
+アップデート検知にService Workerは使っておらず（`public/sw.js`はPush通知の受信専用）、
+同じバージョンポーリング方式を踏襲した。オフライン対応（Service Workerによるキャッシュ）は
+`guchi-apps/docs`の`standards/tech-stack.md`のとおり必須ではないため、今回もあわせて導入は
+していない。
+
+**issue-deck側と違い、バックグラウンド復帰時に自動リロードはしない。** issue-deckの元実装は
+「復帰直後は未保存入力を失う心配がない安全なタイミング」として自動リロードするが、
+`/dashboard/image-mail`（#64）は画像選択・件名入力という未保存状態を持つ画面のため、
+気づかないうちにリロードされると入力が消える。更新は必ずバナーの「更新する」ボタン経由の
+ユーザー操作でのみ行う。今後、フォーム状態を持つ画面を追加する場合も、この前提（自動リロード
+なし）を崩さないよう注意する。

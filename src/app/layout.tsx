@@ -1,6 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
+import packageJson from "../../package.json";
+import AppUpdateChecker from "@/components/AppUpdateChecker";
+
 export const metadata: Metadata = {
   title: "research-desk",
   description:
@@ -22,7 +25,10 @@ export const viewport: Viewport = { themeColor: "#087f78", viewportFit: "cover" 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="ja">
-      <body className="min-h-dvh antialiased">{children}</body>
+      <body className="min-h-dvh antialiased">
+        {children}
+        <AppUpdateChecker currentVersion={packageJson.version} />
+      </body>
     </html>
   );
 }
