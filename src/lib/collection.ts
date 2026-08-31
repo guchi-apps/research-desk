@@ -1,16 +1,19 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getWeekRange, weekCondition, toMergedSources, type MergedSource, type WeekRange } from "@/lib/industry-information";
 
-export const COLLECTION_LIMIT = 6;
+export const COLLECTION_LIMIT = 10;
+const BUSINESS_WEEKLY_LIMIT = 5;
 const DAY_MS = 24 * 60 * 60 * 1000;
 type Business = "DELIVERY" | "LOCKER";
 type InformationType = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "QUALITY_SAFETY" | "OVERSEAS_CASE" | "OTHER";
 type Candidate = { business: Business; title: string; url: string; sourceName: string; publisher: string | null; publishedAt: Date; isSupplemental: boolean; informationType: InformationType; importance: "HIGH" | "MEDIUM" | "REFERENCE"; keywords: string[]; tags: string[] };
 type InformationTypeValue = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "RECRUITMENT_PARTNERSHIP" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "CONSTRUCTION" | "QUALITY_SAFETY" | "PATENT" | "OVERSEAS_CASE" | "OTHER";
 type ImportanceValue = "HIGH" | "MEDIUM" | "REFERENCE";
+const IMPORTANCE_RANK: Record<ImportanceValue, number> = { HIGH: 3, MEDIUM: 2, REFERENCE: 1 };
 
-export type CollectionResult = { runId: string; status: "SUCCEEDED" | "PARTIAL" | "FAILED"; targetFrom: string; targetTo: string; supplementalFrom: string; fetchedCount: number; selectedCount: number; insertedCount: number; duplicateCount: number; failedCount: number; errors: string[] };
+export type CollectionResult = { runId: string; status: "SUCCEEDED" | "PARTIAL" | "FAILED"; targetFrom: string; targetTo: string; supplementalFrom: string; fetchedCount: number; selectedCount: number; insertedCount: number; duplicateCount: number; mergedCount: number; excludedCount: number; failedCount: number; errors: string[] };
 
 const FEEDS = [
   { business: "DELIVERY" as const, name: "宅配・住宅設備の公開情報", url: "https://news.google.com/rss/search?q=" + encodeURIComponent("(宅配ボックス OR ポスト OR 機能門柱 OR 置き配) (新商品 OR 発表 OR 導入 OR 補助金)") + "&hl=ja&gl=JP&ceid=JP:ja" },
@@ -61,6 +64,7 @@ export type WeeklyReportInput = {
 };
 
 export type WeeklyReportImportResult = CollectionResult & {
+  // insertedCount+mergedCountの事業別内訳（新規追加・既存への統合更新の両方を含む）
   businessCounts: { DELIVERY: number; LOCKER: number };
   duplicateBusinessCounts: { DELIVERY: number; LOCKER: number };
 };
@@ -71,6 +75,288 @@ function parseDate(value: string | null | undefined, fieldName: string): Date | 
   if (Number.isNaN(date.getTime())) throw new Error(`${fieldName}は有効なISO 8601日時で指定してください`);
   return date;
 }
+
+// --- 同一イベント判定・統合更新・週あたり上限（#43） ---------------------------------------
+
+/** イベント統合・週報登録の両経路が共通で扱う入力の形。日時はDateへ変換済みのものを渡す。 */
+export type EventArticleInput = {
+  business: Business;
+  informationType: InformationTypeValue;
+  title: string;
+  url: string;
+  sourceName: string;
+  publisher?: string | null;
+  isPrimarySource?: boolean;
+  publishedAt?: Date | null;
+  occurredAt?: Date | null;
+  content?: string | null;
+  summary?: string | null;
+  extractedMetrics?: Prisma.InputJsonValue | null;
+  implications?: string | null;
+  importance?: ImportanceValue;
+  targetCompany?: string | null;
+  targetProduct?: string | null;
+  keywords?: string[];
+  tags?: string[];
+  periodScope?: "IN_SCOPE" | "PAST_30_DAYS_SUPPLEMENT";
+};
+
+export type UpsertOutcome = "duplicate" | "inserted" | "merged" | "excluded";
+export type ExcludedArticle = { business: Business; title: string; url: string; reason: "REPLACED" | "CAPACITY_EXCEEDED"; replacedArticleId?: string; replacedArticleTitle?: string; occurredAt: string };
+export type UpsertResult = { outcome: UpsertOutcome; excluded?: ExcludedArticle };
+
+/** タイトルの単語一致率による類似判定。`threshold`を下げるほど緩く同一とみなす
+ * （RSS内の重複除去は0.8＝厳格、イベント統合の下地は0.6＝緩め、で使い分ける）。 */
+function similarTitle(left: string, right: string, threshold = 0.8): boolean {
+  const words = (value: string) => new Set(value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 1));
+  const leftWords = words(left); const rightWords = words(right);
+  if (!leftWords.size || !rightWords.size) return left === right;
+  return [...leftWords].filter((word) => rightWords.has(word)).length / Math.min(leftWords.size, rightWords.size) >= threshold;
+}
+
+function normalizeKey(value: string | null | undefined): string {
+  return (value ?? "").trim().toLowerCase().replace(/[\s　,、･・]/g, "");
+}
+
+type MatchableFields = {
+  business: Business;
+  informationType: InformationTypeValue;
+  title: string;
+  publisher?: string | null;
+  sourceName: string;
+  targetCompany?: string | null;
+  targetProduct?: string | null;
+  occurredAt?: Date | null;
+  publishedAt?: Date | null;
+};
+
+/** 発表主体キー。対象企業→発行元→情報源の優先順で、表記の空白・記号の揺れを丸めて比較する。 */
+function announcerKey(item: Pick<MatchableFields, "targetCompany" | "publisher" | "sourceName">): string {
+  return normalizeKey(item.targetCompany || item.publisher || item.sourceName);
+}
+
+function withinDays(a: Date | null | undefined, b: Date | null | undefined, days: number): boolean {
+  return Boolean(a && b && Math.abs(a.getTime() - b.getTime()) <= days * DAY_MS);
+}
+
+/**
+ * 同一イベント判定（#43）。発表主体が一致し、かつ「対象製品/サービスが一致」または
+ * 「タイトルが緩く類似し、発表日が近い（5日以内）か情報区分が一致」する場合に同一とみなす。
+ * 呼び出し側は同じ週・同じ事業のレコードだけを`weekPeers`として渡すこと。
+ */
+export function findEventMatch<T extends MatchableFields & { id: string }>(candidate: MatchableFields, weekPeers: T[]): T | null {
+  const candidateAnnouncer = announcerKey(candidate);
+  if (!candidateAnnouncer) return null;
+  const candidateDate = candidate.occurredAt ?? candidate.publishedAt;
+  const candidateProduct = normalizeKey(candidate.targetProduct);
+  for (const peer of weekPeers) {
+    if (peer.business !== candidate.business || announcerKey(peer) !== candidateAnnouncer) continue;
+    const sameProduct = candidateProduct !== "" && candidateProduct === normalizeKey(peer.targetProduct);
+    const titleAlike = similarTitle(candidate.title, peer.title, 0.6);
+    const closeDate = withinDays(candidateDate, peer.occurredAt ?? peer.publishedAt, 5);
+    const sameType = candidate.informationType === peer.informationType;
+    if (sameProduct || (titleAlike && (closeDate || sameType))) return peer;
+  }
+  return null;
+}
+
+function isPlainObject(value: unknown): value is Record<string, Prisma.JsonValue> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 主要数値の統合。両方がオブジェクトなら項目単位でマージ（新しい値で上書き）、そうでなければ丸ごと置き換える。 */
+function mergeMetrics(existing: Prisma.JsonValue | null | undefined, incoming: Prisma.InputJsonValue | null | undefined): Prisma.InputJsonValue | undefined {
+  if (incoming === null || incoming === undefined) return undefined;
+  if (isPlainObject(existing) && isPlainObject(incoming as object)) return { ...existing, ...(incoming as Record<string, Prisma.JsonValue>) };
+  return incoming;
+}
+
+const CHANGE_LABELS: Partial<Record<keyof EventArticleInput, string>> = {
+  extractedMetrics: "主要数値",
+  targetProduct: "対象製品・対象地域",
+  targetCompany: "対象企業",
+  summary: "要約",
+  content: "本文",
+  implications: "示唆",
+  importance: "重要度",
+  publishedAt: "公開日",
+  occurredAt: "発生日",
+};
+
+type WeekPeer = {
+  id: string;
+  business: Business;
+  informationType: InformationTypeValue;
+  title: string;
+  publisher: string | null;
+  sourceName: string;
+  targetCompany: string | null;
+  targetProduct: string | null;
+  occurredAt: Date | null;
+  publishedAt: Date | null;
+  importance: ImportanceValue;
+  isPrimarySource: boolean;
+  extractedMetrics: Prisma.JsonValue | null;
+  summary: string | null;
+  implications: string | null;
+  content: string | null;
+  mergedSources: Prisma.JsonValue | null;
+  normalizedUrl: string;
+};
+
+const WEEK_PEER_SELECT = {
+  id: true, business: true, informationType: true, title: true, publisher: true, sourceName: true,
+  targetCompany: true, targetProduct: true, occurredAt: true, publishedAt: true, importance: true,
+  isPrimarySource: true, extractedMetrics: true, summary: true, implications: true, content: true,
+  mergedSources: true, normalizedUrl: true,
+} satisfies Prisma.IndustryInformationSelect;
+
+/** 既存記事へ統合・上書き更新する。完全に既知の内容（統合元URLが既出かつ変更なし）なら
+ * `updateReason`・バッジを動かさず`duplicate`として扱う（同一URLの冪等性と同じ考え方）。 */
+async function mergeIntoExisting(existing: WeekPeer, article: EventArticleInput, runId: string, normalizedUrl: string, range: WeekRange): Promise<UpsertOutcome> {
+  const data: Record<string, unknown> = {};
+  const changed: (keyof EventArticleInput)[] = [];
+
+  const metrics = mergeMetrics(existing.extractedMetrics, article.extractedMetrics);
+  if (metrics !== undefined) { data.extractedMetrics = metrics; changed.push("extractedMetrics"); }
+
+  for (const key of ["targetProduct", "targetCompany", "implications", "summary", "content"] as const) {
+    const incoming = article[key];
+    if (incoming && incoming !== existing[key]) { data[key] = incoming; changed.push(key); }
+  }
+
+  if (article.importance && IMPORTANCE_RANK[article.importance] > IMPORTANCE_RANK[existing.importance]) {
+    data.importance = article.importance;
+    changed.push("importance");
+  }
+
+  // occurredAt/publishedAtは、マッチ判定に使った週range内に収まる値だけ反映する。範囲外の日付で
+  // 上書きすると記事の表示週が想定外に移動し、既存の週報表示が壊れるため。
+  for (const key of ["occurredAt", "publishedAt"] as const) {
+    const incoming = article[key];
+    if (incoming && incoming >= range.start && incoming < range.end && (!existing[key] || incoming > existing[key]!)) {
+      data[key] = incoming;
+      changed.push(key);
+    }
+  }
+
+  const mergedSources = toMergedSources(existing.mergedSources);
+  const alreadyKnown = existing.normalizedUrl === normalizedUrl || mergedSources.some((source) => source.normalizedUrl === normalizedUrl);
+  if (alreadyKnown && changed.length === 0) return "duplicate";
+
+  const nextMergedSources: MergedSource[] = alreadyKnown ? mergedSources : [...mergedSources, {
+    url: article.url, normalizedUrl, sourceName: article.sourceName, publisher: article.publisher ?? null,
+    isPrimarySource: article.isPrimarySource ?? false, mergedAt: new Date().toISOString(), collectionRunId: runId,
+  }];
+
+  const reason = changed.length
+    ? `${[...new Set(changed.map((key) => CHANGE_LABELS[key] ?? key))].join("・")}を更新しました`
+    : "同一発表の転載を統合しました（内容に変更はありません）";
+
+  await prisma.industryInformation.update({
+    where: { id: existing.id },
+    data: {
+      ...data,
+      mergedSources: nextMergedSources as Prisma.InputJsonValue,
+      updateReason: reason,
+      updatedByRunId: runId,
+      isPrimarySource: existing.isPrimarySource || Boolean(article.isPrimarySource),
+    },
+  });
+  return "merged";
+}
+
+type PriorityFields = { importance: ImportanceValue; isPrimarySource: boolean; publishedAt: Date | null };
+
+/** 週あたり上限の置換/除外で使う優先順位。重要度→一次情報かどうか→公開日時（新しい方）の順。 */
+function isHigherPriority(a: PriorityFields, b: PriorityFields): boolean {
+  if (IMPORTANCE_RANK[a.importance] !== IMPORTANCE_RANK[b.importance]) return IMPORTANCE_RANK[a.importance] > IMPORTANCE_RANK[b.importance];
+  if (a.isPrimarySource !== b.isPrimarySource) return a.isPrimarySource;
+  return (a.publishedAt?.getTime() ?? 0) > (b.publishedAt?.getTime() ?? 0);
+}
+
+function toCreateData(article: EventArticleInput, runId: string, normalizedUrl: string): Prisma.IndustryInformationUncheckedCreateInput {
+  return {
+    business: article.business,
+    informationType: article.informationType,
+    title: article.title,
+    originalUrl: article.url,
+    normalizedUrl,
+    urlHash: createHash("sha256").update(normalizedUrl).digest("hex"),
+    sourceName: article.sourceName,
+    publisher: article.publisher ?? null,
+    isPrimarySource: article.isPrimarySource ?? false,
+    publishedAt: article.publishedAt ?? null,
+    occurredAt: article.occurredAt ?? null,
+    content: article.content ?? null,
+    summary: article.summary ?? null,
+    extractedMetrics: article.extractedMetrics ?? undefined,
+    implications: article.implications ?? null,
+    importance: article.importance ?? "REFERENCE",
+    targetCompany: article.targetCompany ?? null,
+    targetProduct: article.targetProduct ?? null,
+    keywords: article.keywords ?? [],
+    tags: article.tags ?? [],
+    periodScope: article.periodScope ?? "IN_SCOPE",
+    collectionRunId: runId,
+    updatedByRunId: runId,
+  };
+}
+
+/**
+ * 業界情報1件を取り込む（#43）。AIDE経由の週報登録・自動収集の両方がこれ1本を呼ぶ。
+ * 1. 完全URL一致は従来どおり冪等（`duplicate`、何も更新しない）
+ * 2. 同じ週・同じ事業のレコードから同一イベントを判定し、マッチすれば新規行を作らず統合更新する
+ * 3. マッチしなければ新規イベントとして扱い、週あたり上限（事業ごと5件）を適用する
+ *    （優先度が上回れば最弱の既存記事を削除して置換、そうでなければ新規候補を除外）
+ */
+export async function upsertIndustryInformationEvent(article: EventArticleInput, runId: string): Promise<UpsertResult> {
+  const normalizedUrl = normalizeUrl(article.url);
+
+  const exact = await prisma.industryInformation.findUnique({ where: { normalizedUrl }, select: { id: true } });
+  if (exact) return { outcome: "duplicate" };
+
+  const referenceDate = article.occurredAt ?? article.publishedAt ?? new Date();
+  const range = getWeekRange(0, referenceDate);
+  const weekPeers = await prisma.industryInformation.findMany({
+    where: { AND: [{ business: article.business }, weekCondition(range)] },
+    select: WEEK_PEER_SELECT,
+  });
+
+  const matched = findEventMatch(article, weekPeers);
+  if (matched) {
+    try {
+      const outcome = await mergeIntoExisting(matched, article, runId, normalizedUrl, range);
+      return { outcome };
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { outcome: "duplicate" };
+      throw error;
+    }
+  }
+
+  let excluded: ExcludedArticle | undefined;
+  if (weekPeers.length >= BUSINESS_WEEKLY_LIMIT) {
+    const weakest = weekPeers.reduce((min, item) => (isHigherPriority(item, min) ? min : item));
+    const candidatePriority: PriorityFields = { importance: article.importance ?? "REFERENCE", isPrimarySource: article.isPrimarySource ?? false, publishedAt: article.publishedAt ?? null };
+    if (isHigherPriority(candidatePriority, weakest)) {
+      excluded = { business: article.business, title: weakest.title, url: weakest.normalizedUrl, reason: "REPLACED", replacedArticleId: weakest.id, replacedArticleTitle: weakest.title, occurredAt: new Date().toISOString() };
+      await prisma.industryInformation.delete({ where: { id: weakest.id } });
+    } else {
+      excluded = { business: article.business, title: article.title, url: normalizedUrl, reason: "CAPACITY_EXCEEDED", occurredAt: new Date().toISOString() };
+      return { outcome: "excluded", excluded };
+    }
+  }
+
+  try {
+    await prisma.industryInformation.create({ data: toCreateData(article, runId, normalizedUrl) });
+    return { outcome: "inserted", excluded };
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return { outcome: "duplicate", excluded };
+    throw error;
+  }
+}
+
+// --- AIDE経由の週報登録 -----------------------------------------------------------------
 
 export async function importWeeklyReport(input: WeeklyReportInput): Promise<WeeklyReportImportResult> {
   const targetFrom = parseDate(input.targetFrom, "targetFrom");
@@ -83,8 +369,11 @@ export async function importWeeklyReport(input: WeeklyReportInput): Promise<Week
   const errors: string[] = [];
   let insertedCount = 0;
   let duplicateCount = 0;
+  let mergedCount = 0;
+  let excludedCount = 0;
   const businessCounts = { DELIVERY: 0, LOCKER: 0 };
   const duplicateBusinessCounts = { DELIVERY: 0, LOCKER: 0 };
+  const excludedArticles: ExcludedArticle[] = [];
   const seen = new Set<string>();
 
   for (const [index, article] of input.articles.entries()) {
@@ -96,19 +385,11 @@ export async function importWeeklyReport(input: WeeklyReportInput): Promise<Week
     }
     seen.add(normalizedUrl);
     try {
-      const existing = await prisma.industryInformation.findUnique({ where: { normalizedUrl }, select: { id: true } });
-      if (existing) {
-        duplicateCount++;
-        duplicateBusinessCounts[article.business]++;
-        continue;
-      }
-      await prisma.industryInformation.create({ data: {
+      const { outcome, excluded } = await upsertIndustryInformationEvent({
         business: article.business,
         informationType: article.informationType,
         title: article.title,
-        originalUrl: article.url,
-        normalizedUrl,
-        urlHash: createHash("sha256").update(normalizedUrl).digest("hex"),
+        url: article.url,
         sourceName: article.sourceName,
         publisher: article.publisher ?? null,
         isPrimarySource: article.isPrimarySource ?? false,
@@ -124,31 +405,23 @@ export async function importWeeklyReport(input: WeeklyReportInput): Promise<Week
         keywords: article.keywords ?? [],
         tags: article.tags ?? [],
         periodScope: article.periodScope ?? "IN_SCOPE",
-        collectionRunId: run.id,
-      } });
-      insertedCount++;
-      businessCounts[article.business]++;
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-        duplicateCount++;
-        duplicateBusinessCounts[article.business]++;
-      } else {
-        errors.push(`ARTICLE_INSERT_FAILED: 記事${index + 1}件目の登録に失敗しました`);
-      }
+      }, run.id);
+
+      if (excluded) { excludedArticles.push(excluded); excludedCount++; }
+      if (outcome === "duplicate") { duplicateCount++; duplicateBusinessCounts[article.business]++; }
+      else if (outcome === "merged") { mergedCount++; businessCounts[article.business]++; }
+      else if (outcome === "inserted") { insertedCount++; businessCounts[article.business]++; }
+    } catch {
+      errors.push(`ARTICLE_INSERT_FAILED: 記事${index + 1}件目の登録に失敗しました`);
     }
   }
-  const status = errors.length > 0 ? (insertedCount > 0 ? "PARTIAL" : "FAILED") : "SUCCEEDED";
-  const result = { runId: run.id, status, targetFrom: targetFrom.toISOString(), targetTo: targetTo.toISOString(), supplementalFrom: supplementalFrom.toISOString(), fetchedCount: input.articles.length, selectedCount: input.articles.length, insertedCount, duplicateCount, failedCount: errors.length, errors, businessCounts, duplicateBusinessCounts } as WeeklyReportImportResult;
-  await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: result.fetchedCount, selectedCount: result.selectedCount, insertedCount, duplicateCount, failedCount: errors.length, errors } });
+  const status = errors.length > 0 ? (insertedCount + mergedCount > 0 ? "PARTIAL" : "FAILED") : "SUCCEEDED";
+  const result = { runId: run.id, status, targetFrom: targetFrom.toISOString(), targetTo: targetTo.toISOString(), supplementalFrom: supplementalFrom.toISOString(), fetchedCount: input.articles.length, selectedCount: input.articles.length, insertedCount, duplicateCount, mergedCount, excludedCount, failedCount: errors.length, errors, businessCounts, duplicateBusinessCounts } as WeeklyReportImportResult;
+  await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: result.fetchedCount, selectedCount: result.selectedCount, insertedCount, duplicateCount, mergedCount, excludedCount, failedCount: errors.length, errors, excludedArticles: excludedArticles.length ? (excludedArticles as unknown as Prisma.InputJsonValue) : undefined } });
   return result;
 }
 
-function similarTitle(left: string, right: string): boolean {
-  const words = (value: string) => new Set(value.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter((word) => word.length > 1));
-  const leftWords = words(left); const rightWords = words(right);
-  if (!leftWords.size || !rightWords.size) return left === right;
-  return [...leftWords].filter((word) => rightWords.has(word)).length / Math.min(leftWords.size, rightWords.size) >= 0.8;
-}
+// --- 自動収集（Google News RSS、日次） ---------------------------------------------------
 
 function classify(title: string, business: Business): Pick<Candidate, "informationType" | "importance" | "keywords" | "tags"> {
   const text = title.toLowerCase(); const tags = [business === "DELIVERY" ? "宅配事業" : "ロッカー事業"];
@@ -173,34 +446,56 @@ function selectCandidates(candidates: Candidate[]): Candidate[] {
   const selected: Candidate[] = [];
   for (const candidate of candidates.sort((a, b) => Number(a.isSupplemental) - Number(b.isSupplemental) || b.publishedAt.getTime() - a.publishedAt.getTime())) {
     if (selected.length >= COLLECTION_LIMIT || selected.some((item) => item.url === candidate.url || similarTitle(item.title, candidate.title))) continue;
-    if (selected.filter((item) => item.business === candidate.business).length >= 3) continue;
+    if (selected.filter((item) => item.business === candidate.business).length >= BUSINESS_WEEKLY_LIMIT) continue;
     selected.push(candidate);
   }
   return selected;
 }
 
-function toIndustryInformation(item: Candidate, collectionRunId: string, canonicalId?: string) {
-  const normalizedUrl = item.url;
-  const data: Prisma.IndustryInformationUncheckedCreateInput = { business: item.business, informationType: item.informationType, title: item.title, originalUrl: item.url, normalizedUrl, urlHash: createHash("sha256").update(normalizedUrl).digest("hex"), sourceName: item.sourceName, publisher: item.publisher, isPrimarySource: false, publishedAt: item.publishedAt, importance: item.importance, keywords: item.keywords, tags: item.tags, periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE", collectionRunId };
-  return canonicalId ? { ...data, canonicalId } : data;
-}
-
-export async function runWeeklyCollection(now = new Date()): Promise<CollectionResult> {
-  const targetTo = new Date(now); const targetFrom = new Date(now.getTime() - 7 * DAY_MS); const supplementalFrom = new Date(now.getTime() - 30 * DAY_MS);
-  const run = await prisma.collectionRun.create({ data: { targetFrom, targetTo, supplementalFrom } }); const errors: string[] = []; const candidates: Candidate[] = [];
+/**
+ * 宅配・ロッカー業界情報の日次収集（#43。従来は週次のみだった`runWeeklyCollection`を改名）。
+ * `targetFrom`は「今週（JST日曜0時始まり）の開始」に固定する。ローリング7日窓のままだと
+ * 日次実行のたびに週境界をまたぐランが発生し、週内へ集約する前提が崩れるため。
+ */
+export async function runDailyCollection(now = new Date()): Promise<CollectionResult> {
+  const { start: targetFrom } = getWeekRange(0, now);
+  const targetTo = new Date(now);
+  const supplementalFrom = new Date(now.getTime() - 30 * DAY_MS);
+  const run = await prisma.collectionRun.create({ data: { targetFrom, targetTo, supplementalFrom } });
+  const errors: string[] = [];
+  const candidates: Candidate[] = [];
   for (const feed of FEEDS) try {
     const response = await fetch(feed.url, { headers: { "user-agent": "research-desk/0.1 (+public-rss-collector)" }, signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     candidates.push(...parseFeed(await response.text(), feed, targetFrom, targetTo, supplementalFrom));
   } catch (error) { errors.push(`${feed.name}: ${error instanceof Error ? error.message : "取得に失敗しました"}`); }
-  const selected = selectCandidates(candidates); let insertedCount = 0; let duplicateCount = 0;
-  const existing = await prisma.industryInformation.findMany({ where: { publishedAt: { gte: supplementalFrom } }, select: { id: true, business: true, title: true, normalizedUrl: true, canonicalId: true } });
+  const selected = selectCandidates(candidates);
+  let insertedCount = 0;
+  let duplicateCount = 0;
+  let mergedCount = 0;
+  let excludedCount = 0;
+  const excludedArticles: ExcludedArticle[] = [];
   for (const item of selected) {
-    if (existing.some((record) => record.normalizedUrl === item.url)) { duplicateCount++; continue; }
-    const canonical = existing.find((record) => record.business === item.business && similarTitle(record.title, item.title));
-    await prisma.industryInformation.create({ data: toIndustryInformation(item, run.id, canonical?.canonicalId ?? canonical?.id) }); insertedCount++;
+    const { outcome, excluded } = await upsertIndustryInformationEvent({
+      business: item.business,
+      informationType: item.informationType,
+      title: item.title,
+      url: item.url,
+      sourceName: item.sourceName,
+      publisher: item.publisher,
+      isPrimarySource: false,
+      publishedAt: item.publishedAt,
+      importance: item.importance,
+      keywords: item.keywords,
+      tags: item.tags,
+      periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE",
+    }, run.id);
+    if (excluded) { excludedArticles.push(excluded); excludedCount++; }
+    if (outcome === "duplicate") duplicateCount++;
+    else if (outcome === "merged") mergedCount++;
+    else if (outcome === "inserted") insertedCount++;
   }
   const status = errors.length === FEEDS.length ? "FAILED" : errors.length > 0 ? "PARTIAL" : "SUCCEEDED";
-  await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, failedCount: errors.length, errors } });
-  return { runId: run.id, status, targetFrom: targetFrom.toISOString(), targetTo: targetTo.toISOString(), supplementalFrom: supplementalFrom.toISOString(), fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, failedCount: errors.length, errors };
+  await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, mergedCount, excludedCount, failedCount: errors.length, errors, excludedArticles: excludedArticles.length ? (excludedArticles as unknown as Prisma.InputJsonValue) : undefined } });
+  return { runId: run.id, status, targetFrom: targetFrom.toISOString(), targetTo: targetTo.toISOString(), supplementalFrom: supplementalFrom.toISOString(), fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, mergedCount, excludedCount, failedCount: errors.length, errors };
 }

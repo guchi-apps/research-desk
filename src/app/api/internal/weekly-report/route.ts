@@ -63,8 +63,9 @@ function validateInput(value: unknown): WeeklyReportInput {
  * （`AIDE_RESEARCH_DESK_TOKEN`）にだけ置く。#27の独立MCP（`/api/mcp`）はこのAPIへ
  * 置き換えたため残していない。
  *
- * 冪等性は`normalizedUrl`の一意制約に任せる（`src/lib/collection.ts`）。同じ週報を再送しても
- * 二重登録されず、重複として件数に載る。
+ * 冪等性は`normalizedUrl`の一意制約に任せる。異なるURLでも発表主体・対象製品・発表日等から
+ * 同一イベントと判定した記事は新規作成せず既存記事へ統合・上書き更新する
+ * （`src/lib/collection.ts`の`upsertIndustryInformationEvent()`、#43）。
  */
 export async function POST(request: Request) {
   const unauthorized = requireInternalApiKey(request);
