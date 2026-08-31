@@ -97,13 +97,19 @@ Research Deskの認証情報はChatGPTへ露出しない。
 配下だけなので、このパスはSupabaseへ問い合わせずに素通しされる。
 
 週報の登録は`src/lib/collection.ts`の`importWeeklyReport()`が担当する（#27から流用）。1回あたり
-全体6件、各事業3件までを入力検証する。記事の取り込みは`upsertIndustryInformationEvent()`（#43。
-自動収集の`runDailyCollection()`とも共通）に委ね、完全URL一致は従来どおり冪等に扱い、URLが
-異なっていても同一イベントと判定した記事は新規作成せず既存記事へ統合・上書き更新する。登録結果は
-`CollectionRun`に保存し、新規・統合更新・重複・除外の件数と`DELIVERY`／`LOCKER`別の件数を返す
-（`mergedCount`・`excludedCount`はレスポンスへの追加フィールドで、AIDE側の契約は後方互換）。
-レート制限はプロセス内で認証済みクライアントごとに1分20回までとするため、複数プロセス環境では
-リバースプロキシ側の制限も併用する。シークレットと入力本文はログへ出さない。
+全体10件、各事業5件までを入力検証する（#47。当初は全体6件・各事業3件で、AIDE側が広げた上限
+（guchi-apps/aide#226）にここも揃えた）。`extractedMetrics`（主要数値のオブジェクト）はAIDE側の
+制限（30項目・JSONにして2000文字まで）と同じ上限で受け付ける。事業あたりの入力上限（5件）は
+`upsertIndustryInformationEvent()`側の週あたり保持上限（`BUSINESS_WEEKLY_LIMIT`＝5件/事業）と
+同じ値のため、1回のリクエストの5件だけで週の保持上限にちょうど到達する（後述の
+置換／除外はその次のリクエスト、たとえば翌日分から働く）。記事の取り込みは
+`upsertIndustryInformationEvent()`（#43。自動収集の`runDailyCollection()`とも共通）に委ね、
+完全URL一致は従来どおり冪等に扱い、URLが異なっていても同一イベントと判定した記事は新規作成せず
+既存記事へ統合・上書き更新する。登録結果は`CollectionRun`に保存し、新規・統合更新・重複・除外の
+件数と`DELIVERY`／`LOCKER`別の件数を返す（`mergedCount`・`excludedCount`はレスポンスへの追加
+フィールドで、AIDE側の契約は後方互換）。レート制限はプロセス内で認証済みクライアントごとに1分20回
+までとするため、複数プロセス環境ではリバースプロキシ側の制限も併用する。シークレットと入力本文は
+ログへ出さない。
 
 初回マイグレーション（`prisma/migrations/20260830000000_init/`）は、CI環境にライブDBが無い状態で
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
@@ -126,6 +132,16 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 すると、`Loaded Prisma config from prisma.config.ts.`やアップデート通知のバナーがSQLファイルへ
 混入する**（#43で実際に発生し、`prisma/migrations/20260831120000_daily_event_merge_and_weekly_cap/`
 を作り直した）。`> file`だけにし、`2>&1`は付けない。
+
+**サブPCのworktreeにはDB接続情報が渡されないため、DB書き込みを伴う動作確認はローカルでは
+できないことが多い**（#47）。1PasswordのDB共通アイテム（`db-host`＝`localhost`）は本番（VPS）上で
+接続する前提の値で、サブPCにはローカルMariaDBもDocker/Podmanも無く、`sudo`権限も無い
+セッションが大半のため、その場では用意できない。SSHトンネル（`database.md`）で本番相当のDBへ
+繋ぐ手もあるが、テスト用の書き込みで本番データを汚す危険がある。`.env.local`の`DATABASE_URL`を
+ダミー値にしても`requireInternalApiKey()`・`validateInput()`（入力検証）までは到達できるため、
+**バリデーションの単体的な挙動はcurlで確認できる**が、`upsertIndustryInformationEvent()`側の
+週あたり上限・置換／除外・統合更新の実地確認まではできない。それらはコードレビューでの
+突き合わせに留める判断もありうる。
 
 ## トップ画面（`/`, #42）
 
@@ -152,16 +168,25 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 `?week=`は今週を`0`とするオフセットで、`-8`まで遡れる。週の範囲は**JST（UTC+9）の日曜0時**から
 7日間で（#43。それ以前は月曜0時始まりだった）、サーバーのタイムゾーン設定に結果を左右させない
 ため`Date`のローカルメソッドは使わず、オフセットを足してUTCとして扱う（`getWeekRange()`）。
-境界変更にともなう既存データの再集計・移行は不要（`weekCondition()`は公開日・収集ランの期間
-重なりで判定するロジックのままで、境界がずれるだけのため）。`weekCondition()`は
+境界変更にともなう既存データの再集計・移行は不要（`weekCondition()`は公開日・発生日・収集ランの
+期間重なりで判定するロジックのままで、境界がずれるだけのため）。`weekCondition()`は
 `src/lib/collection.ts`のイベント統合・週あたり上限判定からも再利用する。
 
-どの週に出すかは公開日（`publishedAt`）で決める。ただし例外が2つある。
+どの週に出すかは公開日（`publishedAt`）で決める。ただし例外がある。
 
 - **補足（`periodScope=PAST_30_DAYS_SUPPLEMENT`）は、登録した収集ラン（`CollectionRun`）の
   対象期間が重なる週に出す。** 補足は過去30日から拾った記事で、公開日は対象週より前になる。
   公開日で絞ると「その週の週報として登録したのに画面に出てこない」になる
-- 公開日が未設定の記事も同じく収集ランの対象期間で出す（どの週にも出てこなくなるため）
+- **公開日が未設定の記事は、発生日（`occurredAt`）が入っていればそちらで判定する（#52）。**
+  発生日も未設定の場合のみ、収集ランの対象期間（無ければ収集日）にフォールバックする。
+  公開日未設定の記事を機械的に「登録した日」の週へ出すと、記事の内容と表示週がズレるため
+  （AIDE経由の週報登録では公開日を付けない記事もあり、これが実際に起きていた）
+
+`src/lib/collection.ts`側のイベント統合判定（`findEventMatch()`・`upsertIndustryInformationEvent()`
+の`referenceDate`）は、これとは別の理由で**発生日→公開日**の優先順位を使っている。転載記事は
+発行元により公開日がバラつくため、同一イベントかどうかの判定には事象そのものが起きた日を優先する
+方が適切という別の関心事によるもの。表示側（`weekCondition()`）は「読者が見る週」を決める基準、
+統合側は「同一イベントかどうか」を決める基準であり、意図的に優先順位が異なる（統一はしていない）。
 
 `IndustryInformation.collectionRunId`は`importWeeklyReport()`・`runDailyCollection()`（#43で
 `runWeeklyCollection()`から改名）が登録時に埋める（#37）。これで「1回の週報として登録した記事」が
