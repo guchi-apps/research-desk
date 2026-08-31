@@ -1,0 +1,88 @@
+name: Weekly Collection
+
+# 週次収集API（POST /api/collection/weekly）を定期実行する（guchi-apps/research-desk#33）。
+# READMEは「毎週日曜日18:00（Asia/Tokyo）に外部スケジューラーまたはGitHub Actionsから実行する」
+# と書いていたが、実際に起動する経路がどこにも無く、一度も動いていなかった。
+#
+# **スケジュール実行はデフォルトブランチ（develop）のこのファイルだけが対象。**
+# 叩く先は本番（https://research-desk.gucchii.com/）なので、developへマージした時点で
+# 本番に対して動き始める。本番の`.env`へ COLLECTION_CRON_SECRET が入るのは
+# develop→mainのリリースがデプロイされたときなので、それまでは401で失敗する。
+on:
+  schedule:
+    # GitHub Actionsのcronは常にUTC。18:00 JST = 09:00 UTC。
+    # 混雑する正時は遅延しやすく、数十分ずれることがある（週次なので許容する）。
+    - cron: "0 9 * * 0"
+  workflow_dispatch:
+
+concurrency:
+  group: collection-weekly-research-desk
+  # 収集はDBへ書き込む。前の実行を止めず、重なったら待たせる。
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: 週次収集を実行する
+        env:
+          COLLECTION_CRON_SECRET: ${{ secrets.COLLECTION_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${COLLECTION_CRON_SECRET}" ]; then
+            echo "::error::COLLECTION_CRON_SECRET がGitHubのsecretに登録されていません。scripts/provision-secret.sh で登録してください。"
+            exit 1
+          fi
+
+          BODY=$(mktemp)
+          # 収集はRSSを複数取りに行くため時間がかかる。curl自身のタイムアウトを長めに取る。
+          CODE=$(curl -sS -o "$BODY" -w '%{http_code}' --max-time 300 \
+            -X POST "https://research-desk.gucchii.com/api/collection/weekly" \
+            -H "Authorization: Bearer ${COLLECTION_CRON_SECRET}") || CODE=000
+
+          echo "HTTP ${CODE}"
+          # レスポンスにシークレットは含まれない。runIdと件数を運用ログとして残す。
+          jq . "$BODY" 2>/dev/null || cat "$BODY"
+
+          if [ "$CODE" = "401" ]; then
+            echo "::error::401 unauthorized。本番の.envにCOLLECTION_CRON_SECRETが入っていないか、GitHub側の値と食い違っています。"
+            exit 1
+          fi
+          if [ "$CODE" != "200" ]; then
+            echo "::error::週次収集APIがHTTP ${CODE}を返しました。"
+            exit 1
+          fi
+
+          # フィード側の一時障害は status=PARTIAL / FAILED で返る。既存データは変更されない。
+          STATUS=$(jq -r '.status // "UNKNOWN"' "$BODY")
+          if [ "$STATUS" = "FAILED" ]; then
+            echo "::error::全フィードの取得に失敗しました（status=FAILED）。"
+            exit 1
+          fi
+          if [ "$STATUS" = "PARTIAL" ]; then
+            echo "::warning::一部のフィードの取得に失敗しました（status=PARTIAL）。登録済みのデータは変更されていません。"
+          fi
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: collect
+    if: always()
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Signaly に通知
+        # 通知は収集の合否そのものではない。ここが失敗してもrunを落とさない。
+        continue-on-error: true
+        env:
+          SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
+          NOTIFY_APP: research-desk
+          NOTIFY_KIND: 週次収集
+          NOTIFY_STATUS: ${{ needs.collect.result }}
+        run: bash .github/scripts/signaly-notify.sh

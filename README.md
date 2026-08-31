@@ -25,12 +25,19 @@ pnpm dev
 
 ### 週次収集
 
-毎週日曜日18:00（Asia/Tokyo）に、外部スケジューラーまたはGitHub Actionsから次を実行する。
+毎週日曜日18:00（Asia/Tokyo）に、`.github/workflows/collection-weekly.yml` のcronが次を実行する
+（#33）。手動で流したいときはGitHubのActions画面から `Weekly Collection` を
+`Run workflow` する。
 
 ```bash
 curl -X POST https://research-desk.gucchii.com/api/collection/weekly \
   -H "Authorization: Bearer $COLLECTION_CRON_SECRET"
 ```
+
+`COLLECTION_CRON_SECRET` は本番の `.env`（`deploy.yml` が配る）とGitHubのrepository secret
+（cronが送る）の両方に同じ値が要る。片方だけ変えると401になる。値の発行・同期は
+`scripts/provision-secret.sh --repo guchi-apps/research-desk --key COLLECTION_CRON_SECRET --generate hex32`
+（issue-deck側のスクリプト）で行う。
 
 7日以内の候補を優先して宅配・ロッカー各3件まで、全体6件まで登録する。候補が少ない場合は30日以内
 から補足し、同じURLを再実行しても登録しない。レスポンスの `runId` と件数を運用ログへ残す。
