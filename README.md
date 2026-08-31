@@ -47,6 +47,13 @@ curl -X POST https://research-desk.gucchii.com/api/collection/daily \
 本文転載は行わない。フィード障害時はHTTPレスポンスの `status` が `PARTIAL` または `FAILED` に
 なり、既存データは変更されない。
 
+新しく入った候補（`insertedCount`）が1件以上あれば、同一VPS上のaide-botの
+`POST /api/notices` へ「読み物ができた」お知らせを1件積む（`src/lib/aide-bot-notice.ts`、#41）。
+フィード障害の通知（`.github/workflows/collection-daily.yml` の `notify` ジョブ）とは別経路で、
+こちらは収集結果そのものが対象。`AIDE_BOT_URL`・`AIDE_BOT_TOKEN`・`AIDE_BOT_EMAIL` が3つとも
+未設定なら何もせず、通知に失敗しても収集自体は成功のまま返す。dedupeKeyは収集対象週（JST日曜
+0時始まり）で、同じ週に日次実行が繰り返されても最新の件数へ上書きされる（累積ではない）。
+
 ### AIDE経由の週報登録（サーバー間連携API）
 
 ChatGPTの定期タスクが整理した週報は、ChatGPTからResearch Deskへ直接繋ぐのではなく、既に
