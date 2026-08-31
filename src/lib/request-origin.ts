@@ -29,7 +29,7 @@ export function getRequestOrigin(request: Request): string {
  * `//evil.example` や `/\evil.example` はブラウザに別オリジンのURLとして解釈されるため、
  * 先頭が `/` であることだけでは足りない。
  */
-export function safeNextPath(value: string | null, fallback = "/dashboard"): string {
+export function safeNextPath(value: string | null, fallback = "/"): string {
   if (!value || !value.startsWith("/")) {
     return fallback;
   }
