@@ -97,13 +97,19 @@ Research Deskの認証情報はChatGPTへ露出しない。
 配下だけなので、このパスはSupabaseへ問い合わせずに素通しされる。
 
 週報の登録は`src/lib/collection.ts`の`importWeeklyReport()`が担当する（#27から流用）。1回あたり
-全体6件、各事業3件までを入力検証する。記事の取り込みは`upsertIndustryInformationEvent()`（#43。
-自動収集の`runDailyCollection()`とも共通）に委ね、完全URL一致は従来どおり冪等に扱い、URLが
-異なっていても同一イベントと判定した記事は新規作成せず既存記事へ統合・上書き更新する。登録結果は
-`CollectionRun`に保存し、新規・統合更新・重複・除外の件数と`DELIVERY`／`LOCKER`別の件数を返す
-（`mergedCount`・`excludedCount`はレスポンスへの追加フィールドで、AIDE側の契約は後方互換）。
-レート制限はプロセス内で認証済みクライアントごとに1分20回までとするため、複数プロセス環境では
-リバースプロキシ側の制限も併用する。シークレットと入力本文はログへ出さない。
+全体10件、各事業5件までを入力検証する（#47。当初は全体6件・各事業3件で、AIDE側が広げた上限
+（guchi-apps/aide#226）にここも揃えた）。`extractedMetrics`（主要数値のオブジェクト）はAIDE側の
+制限（30項目・JSONにして2000文字まで）と同じ上限で受け付ける。事業あたりの入力上限（5件）は
+`upsertIndustryInformationEvent()`側の週あたり保持上限（`BUSINESS_WEEKLY_LIMIT`＝5件/事業）と
+同じ値のため、1回のリクエストの5件だけで週の保持上限にちょうど到達する（後述の
+置換／除外はその次のリクエスト、たとえば翌日分から働く）。記事の取り込みは
+`upsertIndustryInformationEvent()`（#43。自動収集の`runDailyCollection()`とも共通）に委ね、
+完全URL一致は従来どおり冪等に扱い、URLが異なっていても同一イベントと判定した記事は新規作成せず
+既存記事へ統合・上書き更新する。登録結果は`CollectionRun`に保存し、新規・統合更新・重複・除外の
+件数と`DELIVERY`／`LOCKER`別の件数を返す（`mergedCount`・`excludedCount`はレスポンスへの追加
+フィールドで、AIDE側の契約は後方互換）。レート制限はプロセス内で認証済みクライアントごとに1分20回
+までとするため、複数プロセス環境ではリバースプロキシ側の制限も併用する。シークレットと入力本文は
+ログへ出さない。
 
 初回マイグレーション（`prisma/migrations/20260830000000_init/`）は、CI環境にライブDBが無い状態で
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
@@ -126,6 +132,16 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 すると、`Loaded Prisma config from prisma.config.ts.`やアップデート通知のバナーがSQLファイルへ
 混入する**（#43で実際に発生し、`prisma/migrations/20260831120000_daily_event_merge_and_weekly_cap/`
 を作り直した）。`> file`だけにし、`2>&1`は付けない。
+
+**サブPCのworktreeにはDB接続情報が渡されないため、DB書き込みを伴う動作確認はローカルでは
+できないことが多い**（#47）。1PasswordのDB共通アイテム（`db-host`＝`localhost`）は本番（VPS）上で
+接続する前提の値で、サブPCにはローカルMariaDBもDocker/Podmanも無く、`sudo`権限も無い
+セッションが大半のため、その場では用意できない。SSHトンネル（`database.md`）で本番相当のDBへ
+繋ぐ手もあるが、テスト用の書き込みで本番データを汚す危険がある。`.env.local`の`DATABASE_URL`を
+ダミー値にしても`requireInternalApiKey()`・`validateInput()`（入力検証）までは到達できるため、
+**バリデーションの単体的な挙動はcurlで確認できる**が、`upsertIndustryInformationEvent()`側の
+週あたり上限・置換／除外・統合更新の実地確認まではできない。それらはコードレビューでの
+突き合わせに留める判断もありうる。
 
 ## トップ画面（`/`, #42）
 
