@@ -163,6 +163,22 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 `src/app/dashboard/page.tsx`はその結果を描くだけにしてある。1週ぶんは全体6件・各事業3件までなので、
 絞り込み後の件数はそのまま描画してよい大きさに収まる。
 
+### スマホでの左右スワイプによる週送り（#53）
+
+この画面へ初めてClient Component（`"use client"`）を導入した。`src/components/SwipeWeekNav.tsx`は
+`return null`のリーフコンポーネントとし、`useEffect`内で既存の`.content`（レイアウト用CSSクラス）
+へタッチイベントリスナーを直接付ける方式にした。`.content`セクション全体をラップするClient
+Componentへ置き換える案は、`page.tsx`の密な1行JSXの中でタグの対応関係を組み替える必要があり
+差分が大きくなるため採らなかった。`page.tsx`側の変更はimport追加・`prevHref`/`nextHref`の計算・
+`<SwipeWeekNav>`の挿入の3点で済んでいる。今後この画面へ他のクライアント側インタラクションを
+追加する場合も、同じ「DOMを描画しないリーフコンポーネントが既存クラスへ直接手を伸ばす」形が
+既存のJSXへの影響を最小化できる。
+
+週送りは`week-nav`の‹・›リンク（`<a href>`によるフルページ遷移）と同じ`query()`で組み立てた
+遷移先を、スワイプ時は`next/navigation`の`useRouter().push()`で辿る。範囲外（`weekOffset`が
+`0`または`OLDEST_WEEK_OFFSET`）のときは`prevHref`/`nextHref`を`null`にして`push`を呼ばない
+ことで、`‹`・`›`の`disabled`（CSSの`pointer-events:none`）と同じ境界を守っている。
+
 ### 週の区切りはJSTの日曜0時
 
 `?week=`は今週を`0`とするオフセットで、`-8`まで遡れる。週の範囲は**JST（UTC+9）の日曜0時**から
