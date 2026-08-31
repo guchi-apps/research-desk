@@ -171,6 +171,33 @@ JSON列の`keywords`・`tags`が**要素の完全一致**（`array_contains` = `
 Prismaが出せるJSON列の条件が完全一致までのためで、`ロッカー`では`ロッカー事業`というタグに
 当たらない。タグは登録時の語をそのまま入れる前提で使う。
 
+## アイコン・PWA起動画面・ログイン画面（#46）
+
+初期化時（issue-deck#2247）が置いた単色プレースホルダのアイコンと、暫定のTailwind slateデザインの
+ログイン画面を、実際のブランドトークン（`globals.css`の`--navy`/`--teal`/`--paper`）へ揃えた。
+
+- **アイコンはSVGを直接手書きし、PNG化はホストのシステムツール（`rsvg-convert`）で行った。**
+  `pnpm-workspace.yaml`の`allowBuilds`に`sharp`が載っているが、これはNext.jsが画像最適化で
+  使う任意の依存で`package.json`には現れず、アイコン生成用に新規導入したものではない。
+  新規npm依存を増やさずに済むため、SVG→PNGの変換はNext.jsのビルド作業に含めず、リポジトリには
+  生成済みのPNG（`public/icon-192.png`・`public/icon-512.png`・`public/apple-icon.png`）だけを
+  コミットしている。デザインを変える場合は`public/icon.svg`を編集し、同じ`rsvg-convert`コマンドで
+  再生成する（Apple Touch Iconだけは、iOS側が自前でマスクをかけるため角丸を付けない別ソースから
+  生成している）
+- **起動画面（スプラッシュ）は`src/app/loading.tsx`（App Routerのファイル規約）で実装した。**
+  同じ`app/`直下に置くことで、ルート直下のレイアウトが持つ`{children}`（`/`・`/login`・
+  `/dashboard`のいずれも）を暗黙のSuspense境界で包み、各ページのサーバー側の`await`
+  （`getCurrentUser()`・DB取得）の間だけフォールバックとして表示される。**ページ遷移のたびにも
+  一瞬表示される**（「起動時だけ」より広い挙動）が、Next.js標準の仕組みだけで完結させるための
+  トレードオフとして許容している。Service Worker等によるオフライン対応は
+  `guchi-apps/docs`の`standards/tech-stack.md`のとおり必須ではないため、今回は追加していない
+- **ログイン画面は`login-shell`/`login-card`等の専用クラスで、トップ画面・業界ニュース画面と
+  同じトークンに揃えた。** 元は`bg-slate-950`等のTailwind暫定スタイルで、`src/app/layout.tsx`の
+  `body`にも同じくTailwindの`bg-slate-950 text-slate-100`が付いていたため、`globals.css`の
+  `body{background:#eef4f1}`（クラスセレクタがタグセレクタより詳細度で勝つ）が上書きされ、
+  ブランドの配色ではなく暗い既定色が効いていた。`body`からTailwindの色クラスを外し、
+  `globals.css`側の基本配色に一本化した
+
 ## CI撮影の認証バイパス
 
 `24.screenshot-required`向け。`/api/dev/login`にアクセスするとCookieが発行され、`src/proxy.ts`と

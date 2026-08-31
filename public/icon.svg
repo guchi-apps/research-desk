@@ -1,6 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="research-desk">
-  <!-- guchi-apps/issue-deck#2247 が置いたプレースホルダ。デザインが決まったら差し替える。 -->
-  <rect width="512" height="512" rx="96" fill="#0f766e" />
-  <text x="256" y="256" fill="#ffffff" font-family="system-ui, sans-serif" font-size="256"
-        font-weight="700" text-anchor="middle" dominant-baseline="central">R</text>
+  <rect width="512" height="512" rx="112" fill="#1d3440" />
+  <rect x="140" y="96" width="232" height="312" rx="28" fill="#f7faf8" />
+  <rect x="176" y="148" width="160" height="30" rx="8" fill="#087f78" />
+  <rect x="176" y="202" width="160" height="14" rx="7" fill="#cfe0dd" />
+  <rect x="176" y="230" width="108" height="14" rx="7" fill="#cfe0dd" />
+  <circle cx="380" cy="380" r="56" fill="#087f78" stroke="#1d3440" stroke-width="14" />
 </svg>
