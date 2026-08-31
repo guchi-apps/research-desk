@@ -22,6 +22,34 @@ const DUMMY_CLIPS = [
   },
 ];
 
+// 日付は固定値ではなく「実行した週」を基準に組み立てる。業界ニュース画面は今週（`?week=0`）を
+// 既定で開くため、固定日にすると時間が経つほど既定の画面が空になる。週の区切りは画面側と同じ
+// JST（UTC+9）の月曜0時に揃える（`src/lib/industry-information.ts`の`getWeekRange()`）。
+const DAY_MS = 24 * 60 * 60 * 1000;
+const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+function currentWeekStart(now = new Date()) {
+  const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
+  const daysFromMonday = (jstNow.getUTCDay() + 6) % 7;
+  const mondayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromMonday);
+  return new Date(mondayJst - JST_OFFSET_MS);
+}
+
+const WEEK_START = currentWeekStart();
+// 補足（`PAST_30_DAYS_SUPPLEMENT`）は公開日が対象週より前になる記事。収集ランに紐付けることで
+// 本体と同じ週に出る（#37）。ランを外すと収集日の週へ落ちる互換分岐のほうを通る。
+const DUMMY_COLLECTION_RUN = {
+  startedAt: new Date(),
+  finishedAt: new Date(),
+  targetFrom: WEEK_START,
+  targetTo: new Date(WEEK_START.getTime() + 7 * DAY_MS),
+  supplementalFrom: new Date(WEEK_START.getTime() - 23 * DAY_MS),
+  status: "SUCCEEDED",
+  fetchedCount: 2,
+  selectedCount: 2,
+  insertedCount: 2,
+};
+
 const DUMMY_INDUSTRY_INFORMATION = [
   {
     business: "DELIVERY",
@@ -31,7 +59,7 @@ const DUMMY_INDUSTRY_INFORMATION = [
     sourceName: "example.com",
     publisher: "サンプル住宅設備株式会社",
     isPrimarySource: true,
-    publishedAt: new Date("2026-08-20T00:00:00Z"),
+    publishedAt: WEEK_START,
     content: "戸建て向け宅配ボックスの新商品に関する一次情報のサンプル。",
     summary: "設置性と受け取り容量を改善した新商品。",
     extractedMetrics: { capacity: "120L", installationTimeMinutes: 90 },
@@ -51,8 +79,8 @@ const DUMMY_INDUSTRY_INFORMATION = [
     sourceName: "example.com",
     publisher: "サンプル物流サービス株式会社",
     isPrimarySource: false,
-    publishedAt: new Date("2026-08-18T00:00:00Z"),
-    occurredAt: new Date("2026-08-15T00:00:00Z"),
+    publishedAt: new Date(WEEK_START.getTime() - 20 * DAY_MS),
+    occurredAt: new Date(WEEK_START.getTime() - 23 * DAY_MS),
     content: "コンビニ店舗にセルフ発送機を導入した事例のサンプル。",
     summary: "店舗スタッフの受付負担を減らし、発送拠点を拡大した。",
     extractedMetrics: { installedStores: 250 },
@@ -86,8 +114,9 @@ async function main() {
   for (const clip of DUMMY_CLIPS) {
     await prisma.clip.create({ data: clip });
   }
+  const run = await prisma.collectionRun.create({ data: DUMMY_COLLECTION_RUN });
   for (const information of DUMMY_INDUSTRY_INFORMATION) {
-    await prisma.industryInformation.create({ data: withUrlIdentity(information) });
+    await prisma.industryInformation.create({ data: { ...withUrlIdentity(information), collectionRunId: run.id } });
   }
   console.log(`Seeded ${DUMMY_CLIPS.length} clip(s) and ${DUMMY_INDUSTRY_INFORMATION.length} industry information record(s) for CI.`);
 }
