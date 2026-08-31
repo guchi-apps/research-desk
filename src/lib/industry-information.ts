@@ -71,11 +71,12 @@ export function formatDateTime(date: Date): string {
 // 週の判定は公開日（`publishedAt`）を基準にする。公開日が未設定の記事は、発生日（`occurredAt`）が
 // 入っていればそちらで判定する（#52）。公開日未設定の記事を機械的に「登録した日」の週へ出すと、
 // 記事の内容と表示週がズレるため（AIDE経由の週報登録では公開日を付けない記事もある）。
-// 発生日も未設定の場合、および補足（過去30日から拾った記事）は、登録した収集ラン
-// （`CollectionRun`）の対象期間が重なる週に出す（#37）。補足は公開日・発生日が対象週より
-// 前になるため、それらで絞ると「その週の週報として登録したのに画面に出てこない」になる。
-// これで1回の週報の本体・補足が同じ週へ揃う。ランに紐付いていない記事（#37より前に登録した
-// もの）は、従来どおり収集日で拾う。
+// 公開日・発生日がどちらも未設定の場合だけ、登録した収集ラン（`CollectionRun`）の対象期間が
+// 重なる週、またはランに紐付いていない記事（#37より前に登録したもの）は収集日で拾う。
+//
+// 補足（`periodScope`が`PAST_30_DAYS_SUPPLEMENT`）も同じ優先順位で判定する（#59）。以前は
+// 補足だけ常に登録した収集ランの週へ出していたが、公開日が入っている記事はその公開日どおりの
+// 週に出るのが利用者の期待と一致するため、`periodScope`による分岐はやめた。
 function runOrCollectedCondition(range: WeekRange): Prisma.IndustryInformationWhereInput[] {
   return [
     // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の日曜0時ちょうどでも翌週には出さない）。
@@ -95,10 +96,9 @@ export function weekCondition(range: WeekRange): Prisma.IndustryInformationWhere
   const byRunOrCollected = runOrCollectedCondition(range);
   return {
     OR: [
-      { periodScope: "IN_SCOPE", publishedAt: { gte: range.start, lt: range.end } },
-      { periodScope: "IN_SCOPE", publishedAt: null, occurredAt: { gte: range.start, lt: range.end } },
-      { periodScope: "IN_SCOPE", publishedAt: null, occurredAt: null, OR: byRunOrCollected },
-      { periodScope: "PAST_30_DAYS_SUPPLEMENT", OR: byRunOrCollected },
+      { publishedAt: { gte: range.start, lt: range.end } },
+      { publishedAt: null, occurredAt: { gte: range.start, lt: range.end } },
+      { publishedAt: null, occurredAt: null, OR: byRunOrCollected },
     ],
   };
 }
