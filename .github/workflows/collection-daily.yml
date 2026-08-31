@@ -1,8 +1,8 @@
-name: Weekly Collection
+name: Daily Collection
 
-# 週次収集API（POST /api/collection/weekly）を定期実行する（guchi-apps/research-desk#33）。
-# READMEは「毎週日曜日18:00（Asia/Tokyo）に外部スケジューラーまたはGitHub Actionsから実行する」
-# と書いていたが、実際に起動する経路がどこにも無く、一度も動いていなかった。
+# 日次収集API（POST /api/collection/daily）を定期実行する（guchi-apps/research-desk#33・#43）。
+# 元は毎週日曜18:00の週次収集だったが、#43で1事業あたり週5件を日次差分で維持する仕様に変わり、
+# エンドポイント・cronとも日次へ変更した（`runWeeklyCollection`→`runDailyCollection`）。
 #
 # **スケジュール実行はデフォルトブランチ（develop）のこのファイルだけが対象。**
 # 叩く先は本番（https://research-desk.gucchii.com/）なので、developへマージした時点で
@@ -10,13 +10,13 @@ name: Weekly Collection
 # develop→mainのリリースがデプロイされたときなので、それまでは401で失敗する。
 on:
   schedule:
-    # GitHub Actionsのcronは常にUTC。18:00 JST = 09:00 UTC。
-    # 混雑する正時は遅延しやすく、数十分ずれることがある（週次なので許容する）。
-    - cron: "0 9 * * 0"
+    # GitHub Actionsのcronは常にUTC。20:00 JST = 11:00 UTC。
+    # 混雑する正時は遅延しやすく、数十分ずれることがある（日次なので許容する）。
+    - cron: "0 11 * * *"
   workflow_dispatch:
 
 concurrency:
-  group: collection-weekly-research-desk
+  group: collection-daily-research-desk
   # 収集はDBへ書き込む。前の実行を止めず、重なったら待たせる。
   cancel-in-progress: false
 
@@ -28,7 +28,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 週次収集を実行する
+      - name: 日次収集を実行する
         env:
           COLLECTION_CRON_SECRET: ${{ secrets.COLLECTION_CRON_SECRET }}
         run: |
@@ -42,7 +42,7 @@ jobs:
           BODY=$(mktemp)
           # 収集はRSSを複数取りに行くため時間がかかる。curl自身のタイムアウトを長めに取る。
           CODE=$(curl -sS -o "$BODY" -w '%{http_code}' --max-time 300 \
-            -X POST "https://research-desk.gucchii.com/api/collection/weekly" \
+            -X POST "https://research-desk.gucchii.com/api/collection/daily" \
             -H "Authorization: Bearer ${COLLECTION_CRON_SECRET}") || CODE=000
 
           echo "HTTP ${CODE}"
@@ -54,7 +54,7 @@ jobs:
             exit 1
           fi
           if [ "$CODE" != "200" ]; then
-            echo "::error::週次収集APIがHTTP ${CODE}を返しました。"
+            echo "::error::日次収集APIがHTTP ${CODE}を返しました。"
             exit 1
           fi
 
@@ -83,6 +83,6 @@ jobs:
         env:
           SIGNALY_WEBHOOK_URL: ${{ secrets.SIGNALY_WEBHOOK_URL }}
           NOTIFY_APP: research-desk
-          NOTIFY_KIND: 週次収集
+          NOTIFY_KIND: 日次収集
           NOTIFY_STATUS: ${{ needs.collect.result }}
         run: bash .github/scripts/signaly-notify.sh

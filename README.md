@@ -23,14 +23,14 @@ pnpm dev
 - `main` へのpushで `.github/workflows/deploy.yml` がVPSへ配る
 - エージェント運用のルールは [CLAUDE.md](CLAUDE.md)
 
-### 週次収集
+### 日次収集
 
-毎週日曜日18:00（Asia/Tokyo）に、`.github/workflows/collection-weekly.yml` のcronが次を実行する
-（#33）。手動で流したいときはGitHubのActions画面から `Weekly Collection` を
-`Run workflow` する。
+毎日20:00（Asia/Tokyo）に、`.github/workflows/collection-daily.yml` のcronが次を実行する
+（#33・#43。元は毎週日曜18:00の週次収集だったが、日次差分で週内の件数を維持する仕様に変えた）。
+手動で流したいときはGitHubのActions画面から `Daily Collection` を `Run workflow` する。
 
 ```bash
-curl -X POST https://research-desk.gucchii.com/api/collection/weekly \
+curl -X POST https://research-desk.gucchii.com/api/collection/daily \
   -H "Authorization: Bearer $COLLECTION_CRON_SECRET"
 ```
 
@@ -39,10 +39,13 @@ curl -X POST https://research-desk.gucchii.com/api/collection/weekly \
 `scripts/provision-secret.sh --repo guchi-apps/research-desk --key COLLECTION_CRON_SECRET --generate hex32`
 （issue-deck側のスクリプト）で行う。
 
-7日以内の候補を優先して宅配・ロッカー各3件まで、全体6件まで登録する。候補が少ない場合は30日以内
-から補足し、同じURLを再実行しても登録しない。レスポンスの `runId` と件数を運用ログへ残す。
-取得元の規約・robots.txtに従い、必要以上の本文転載は行わない。フィード障害時はHTTPレスポンスの
-`status` が `PARTIAL` または `FAILED` になり、既存データは変更されない。
+今週（JST日曜0時始まり）の候補を優先して宅配・ロッカー各5件まで、全体10件まで保持する。候補が
+少ない場合は30日以内から補足する。URLが異なっていても発表主体・対象製品・発表日等から同一発表と
+判定した場合は新規作成せず既存記事を更新し、統合元URL・更新理由を記録する（#43）。同じURLの
+再実行は従来どおり登録しない。上限を超えた場合の置換/除外履歴は収集ラン（`CollectionRun`）に
+記録する。レスポンスの `runId` と件数を運用ログへ残す。取得元の規約・robots.txtに従い、必要以上の
+本文転載は行わない。フィード障害時はHTTPレスポンスの `status` が `PARTIAL` または `FAILED` に
+なり、既存データは変更されない。
 
 ### AIDE経由の週報登録（サーバー間連携API）
 
@@ -59,9 +62,11 @@ ChatGPT定期タスク → AIDEのMCPツール → Research Deskの内部API →
 だけで管理し、ChatGPTへは渡さない。片方だけ値を変えると連携が止まる。
 
 記事は `DELIVERY`（宅配事業）または `LOCKER`（ロッカー事業）に分け、1回あたり全体6件・各事業
-3件まで。同じURLを再送しても `normalizedUrl` の一意制約で重複として集計されるため、毎週日曜日
-18:00（Asia/Tokyo）の定期タスクから安全に再実行できる。レスポンスは実行ID（`runId`）・ステータス・
-新規／重複件数・事業別件数を返す。
+3件まで。同じURLは `normalizedUrl` の一意制約で重複として扱う。URLが異なっていても同一発表と
+判定した記事は新規作成せず既存記事を更新するため（#43）、定期タスクから安全に再実行できる。
+週あたりの保持上限（事業ごと5件）を超えた場合は、優先度の低い既存記事を置換または新規候補を
+除外する。レスポンスは実行ID（`runId`）・ステータス・新規／統合更新／重複／除外件数・事業別件数を
+返す。
 
 ```bash
 curl -X POST http://127.0.0.1:3115/api/internal/weekly-report \
