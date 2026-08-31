@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderUserMenu from "@/components/HeaderUserMenu";
 import { getCurrentUser } from "@/lib/auth";
@@ -24,10 +23,10 @@ function DayGroup({ label, items }: { label: RecencyLabel; items: IndustryInform
 
 export default async function Home() {
   const user = await getCurrentUser();
-  if (user.status === "unavailable") return <main className="empty-state"><p>認証状態を確認できませんでした。しばらくしてから再読み込みしてください。</p></main>;
+  if (user.status === "unavailable") return <section className="content"><div className="empty-state"><p>認証状態を確認できませんでした。しばらくしてから再読み込みしてください。</p></div></section>;
   if (user.status === "unauthenticated") redirect("/login");
   const recent = await listRecentIndustryInformation();
   const groups: Record<RecencyLabel, IndustryInformationListItem[]> = { today: [], yesterday: [], earlier: [] };
   for (const item of recent) groups[getRecencyLabel(item.collectedAt)].push(item);
-  return <main className="app-shell"><aside className="sidebar"><div className="brand">research<span>·</span>desk</div><p className="sidebar-label">WORKSPACE</p><nav><Link className="active" href="/">⌂　新着記事</Link><Link href="/dashboard">▦　業界ニュース</Link><Link href="/dashboard/image-mail">📷　画像を送る</Link><a href="/dashboard">☆　保存した情報</a><a href="/dashboard">↗　書き出し</a></nav><p className="sidebar-label topic">TOPICS</p><nav><a href="/dashboard?business=delivery">宅配事業</a><a href="/dashboard?business=locker">ロッカー事業</a></nav></aside><section className="content"><header className="page-header"><div><p className="eyebrow">LATEST UPDATES</p><h1>新着記事</h1><p className="lead">直近で反映された記事を新しい順に表示しています。事業ごとの絞り込みや週送りは業界ニュース画面で行えます。</p></div><div className="top-actions"><a className="cta" href="/dashboard">業界ニュースを見る　▦</a><HeaderUserMenu /></div></header>{recent.length === 0 ? <div className="no-results">新着記事はまだありません。収集・週報登録が行われるとここに表示されます。</div> : <>{(["today", "yesterday", "earlier"] as const).map((label) => <DayGroup key={label} label={label} items={groups[label]} />)}<p className="bottom-link"><a href="/dashboard">すべての業界ニュースを見る　▦</a></p></>}</section></main>;
+  return <section className="content"><header className="page-header"><div><p className="eyebrow">LATEST UPDATES</p><h1>新着記事</h1><p className="lead">直近で反映された記事を新しい順に表示しています。事業ごとの絞り込みや週送りは業界ニュース画面で行えます。</p></div><div className="top-actions"><a className="cta" href="/dashboard">業界ニュースを見る　▦</a><HeaderUserMenu /></div></header>{recent.length === 0 ? <div className="no-results">新着記事はまだありません。収集・週報登録が行われるとここに表示されます。</div> : <>{(["today", "yesterday", "earlier"] as const).map((label) => <DayGroup key={label} label={label} items={groups[label]} />)}<p className="bottom-link"><a href="/dashboard">すべての業界ニュースを見る　▦</a></p></>}</section>;
 }
