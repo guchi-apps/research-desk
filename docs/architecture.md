@@ -95,6 +95,42 @@ Research Deskの認証情報はChatGPTへ露出しない。
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
 を使って生成した（`prisma migrate dev`と違いDB接続を必要としない）。
 
+## 業界ニュース画面（`/dashboard`）
+
+画面は`industry_information`の表示専用で、書き込みはAIDE経由の`POST /api/internal/weekly-report`
+だけが行う（#32）。クエリの組み立てと表示用の整形は`src/lib/industry-information.ts`に置き、
+`src/app/dashboard/page.tsx`はその結果を描くだけにしてある。1週ぶんは全体6件・各事業3件までなので、
+絞り込み後の件数はそのまま描画してよい大きさに収まる。
+
+### 週の区切りはJSTの月曜0時
+
+`?week=`は今週を`0`とするオフセットで、`-8`まで遡れる。週の範囲は**JST（UTC+9）の月曜0時**から
+7日間で、サーバーのタイムゾーン設定に結果を左右させないため`Date`のローカルメソッドは使わず、
+オフセットを足してUTCとして扱う（`getWeekRange()`）。
+
+どの週に出すかは公開日（`publishedAt`）で決める。ただし例外が2つある。
+
+- **補足（`periodScope=PAST_30_DAYS_SUPPLEMENT`）は収集日（`collectedAt`）の週に出す。** 補足は
+  過去30日から拾った記事で、公開日は対象週より前になる。公開日で絞ると「その週の週報として
+  登録したのに画面に出てこない」になるため、登録した週に出す
+- 公開日が未設定の記事も収集日の週に出す（どの週にも出てこなくなるため）
+
+そのため、週報を「先週ぶん」として登録すると、本体の記事は先週・補足は登録した週に分かれて出る。
+記事を収集ラン（`CollectionRun`）に紐付ければ対象期間で揃えられるが、スキーマ変更が要るため
+#32では行っていない。
+
+### 絞り込みはクエリ側で行う
+
+事業区分・情報区分（`isPrimarySource`）・重要度・キーワードは、すべてPrismaの`where`へ渡す。
+並び順はMySQL/MariaDBのENUMが**定義順**で並ぶ性質に乗せており、`periodScope`（IN_SCOPE→補足）・
+`importance`（HIGH→MEDIUM→REFERENCE）をそのまま`asc`で指定すると「補足は後ろ・重要度順」になる
+（`prisma/migrations/*/migration.sql`のENUM定義順が正）。
+
+キーワードは、文字列列（タイトル・要約・対象企業・対象商品・情報源・発行元）が**部分一致**、
+JSON列の`keywords`・`tags`が**要素の完全一致**（`array_contains` = `JSON_CONTAINS`）になる。
+Prismaが出せるJSON列の条件が完全一致までのためで、`ロッカー`では`ロッカー事業`というタグに
+当たらない。タグは登録時の語をそのまま入れる前提で使う。
+
 ## CI撮影の認証バイパス
 
 `24.screenshot-required`向け。`/api/dev/login`にアクセスするとCookieが発行され、`src/proxy.ts`と
