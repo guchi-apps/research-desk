@@ -10,8 +10,11 @@ const WINDOW_MS = 60_000;
 const MAX_REQUESTS = 20;
 const rateLimit = new Map<string, { startedAt: number; count: number }>();
 
-const ARTICLE_LIMIT = 6;
-const ARTICLE_LIMIT_PER_BUSINESS = 3;
+const ARTICLE_LIMIT = 10;
+const ARTICLE_LIMIT_PER_BUSINESS = 5;
+// AIDE側（30項目・JSONにして2000文字まで）と同等の上限で受ける（#47）。
+const EXTRACTED_METRICS_MAX_KEYS = 30;
+const EXTRACTED_METRICS_MAX_JSON_LENGTH = 2000;
 const INFORMATION_TYPES = ["NEW_PRODUCT", "COMPETITOR", "INTRODUCTION_CASE", "RECRUITMENT_PARTNERSHIP", "POLICY_SUBSIDY", "MARKET_STATISTICS", "USER_ISSUE", "CONSTRUCTION", "QUALITY_SAFETY", "PATENT", "OVERSEAS_CASE", "OTHER"];
 
 // プロセス内カウンタのため、複数プロセスで動かす場合はリバースプロキシ側の制限も併用する。
@@ -51,6 +54,12 @@ function validateInput(value: unknown): WeeklyReportInput {
     if (item.periodScope !== undefined && !["IN_SCOPE", "PAST_30_DAYS_SUPPLEMENT"].includes(item.periodScope as string)) throw new Error(`articles[${index}].periodScopeが不正です`);
     for (const field of ["publishedAt", "occurredAt"]) if (item[field] !== undefined && item[field] !== null && (typeof item[field] !== "string" || Number.isNaN(new Date(item[field] as string).getTime()))) throw new Error(`articles[${index}].${field}が不正です`);
     for (const field of ["keywords", "tags"]) if (item[field] !== undefined && (!Array.isArray(item[field]) || (item[field] as unknown[]).some((value) => typeof value !== "string"))) throw new Error(`articles[${index}].${field}が不正です`);
+    if (item.extractedMetrics !== undefined && item.extractedMetrics !== null) {
+      const metrics = item.extractedMetrics;
+      if (typeof metrics !== "object" || Array.isArray(metrics)) throw new Error(`articles[${index}].extractedMetricsはオブジェクトで指定してください`);
+      if (Object.keys(metrics).length > EXTRACTED_METRICS_MAX_KEYS) throw new Error(`articles[${index}].extractedMetricsは${EXTRACTED_METRICS_MAX_KEYS}項目までです`);
+      if (JSON.stringify(metrics).length > EXTRACTED_METRICS_MAX_JSON_LENGTH) throw new Error(`articles[${index}].extractedMetricsはJSONにして${EXTRACTED_METRICS_MAX_JSON_LENGTH}文字までです`);
+    }
   }
   return input as WeeklyReportInput;
 }
