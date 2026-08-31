@@ -273,3 +273,25 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 `24.screenshot-required`向け。`/api/dev/login`にアクセスするとCookieが発行され、`src/proxy.ts`と
 `src/lib/auth.ts`の両方がそのCookieを検証する（片方だけだとデータが引けず画面が空になるため対で
 実装している）。ダミーデータは `pnpm db:seed:ci`（`prisma/seed-ci.mjs`）で投入する。
+
+## 画像を社用メールに送る（#64）
+
+`/dashboard/image-mail`は、撮影・選択した写真をブラウザ内でJPEG圧縮・ZIP化し、
+`POST /api/image-mail/send`経由でAIDEへ転送する画面。**このIssueはResearch DeskとAIDEの
+2リポジトリにまたがるが、実装エージェントは担当リポジトリ以外を編集できないため、AIDE側
+（Gmail送信・件名/宛先固定・idempotency処理・履歴記録）は`guchi-apps/aide`へ別Issueとして
+切り出した。** Research Desk側は「AIDEへ送信リクエストを送るところまで」が実装範囲で、
+AIDE側がマージされるまでエンドツーエンドの送信は動かない。
+
+- **画像圧縮・ZIP化はいずれも追加依存を最小限にしている。** リサイズ・JPEG化は
+  `createImageBitmap()` + `<canvas>.toBlob()`というブラウザ標準APIのみで完結し、追加依存は
+  ZIP化の`fflate`1つだけ（`src/lib/image-mail-client.ts`）。横幅の自動段階縮小（1200→900→600px）は、
+  ZIP作成後のサイズを見てから次の横幅で作り直す素朴なループで、事前見積もりはしない
+- **送信APIは`/api/internal/*`と違う認証にしている。** `/api/internal/weekly-report`はAIDE→
+  Research Desk方向（共有シークレット）だが、`/api/image-mail/send`はブラウザ→Research Desk
+  サーバー方向のため`getCurrentUser()`によるSupabaseセッション認証を使う。Research Desk→AIDE
+  方向の送信先設定は`AIDE_IMAGE_MAIL_URL`/`AIDE_IMAGE_MAIL_TOKEN`で、`src/lib/aide-bot-notice.ts`
+  （aide-bot＝通知窓口、`AIDE_BOT_*`）とは別のAIDE本体向けの環境変数。名前が紛らわしいので、
+  「aide-bot」と「AIDE本体（Gmail送信等を持つ側）」を混同しないこと
+- 画像・ZIPはRoute Handler側でもメモリ上のFormDataのまま中継するだけで、ディスク・DBへは
+  一切書き込んでいない（受け入れ条件「画像は送信後も保存されない」に対応）
