@@ -95,6 +95,21 @@ Research Deskの認証情報はChatGPTへ露出しない。
 `pnpm exec prisma migrate diff --from-empty --to-schema-datamodel=prisma/schema.prisma --script`
 を使って生成した（`prisma migrate dev`と違いDB接続を必要としない）。
 
+**2回目以降の増分マイグレーションも、DB接続なしで生成できる。** `--from-migrations`は
+シャドウDBを要求するので使わず、**変更前のスキーマをgitから取り出して`--from-schema-datamodel`に
+渡す**（#37）。ローカルに`.env.local`が無い環境でも生成でき、`prisma migrate dev`のように
+開発用DBを作らずに済む。
+
+```bash
+git show HEAD:prisma/schema.prisma > /tmp/schema-old.prisma
+pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
+  --to-schema-datamodel prisma/schema.prisma --script \
+  > prisma/migrations/<YYYYMMDDHHMMSS>_<name>/migration.sql
+```
+
+出力先はリダイレクトで作る（`prisma.config.ts`の`quiet: true`が効いているのでstdoutにSQL以外は
+混ざらない。混ざったときの実害は`guchi-apps/aide-bot#9`）。
+
 ## 業界ニュース画面（`/dashboard`）
 
 画面は`industry_information`の表示専用で、書き込みはAIDE経由の`POST /api/internal/weekly-report`
@@ -110,14 +125,20 @@ Research Deskの認証情報はChatGPTへ露出しない。
 
 どの週に出すかは公開日（`publishedAt`）で決める。ただし例外が2つある。
 
-- **補足（`periodScope=PAST_30_DAYS_SUPPLEMENT`）は収集日（`collectedAt`）の週に出す。** 補足は
-  過去30日から拾った記事で、公開日は対象週より前になる。公開日で絞ると「その週の週報として
-  登録したのに画面に出てこない」になるため、登録した週に出す
-- 公開日が未設定の記事も収集日の週に出す（どの週にも出てこなくなるため）
+- **補足（`periodScope=PAST_30_DAYS_SUPPLEMENT`）は、登録した収集ラン（`CollectionRun`）の
+  対象期間が重なる週に出す。** 補足は過去30日から拾った記事で、公開日は対象週より前になる。
+  公開日で絞ると「その週の週報として登録したのに画面に出てこない」になる
+- 公開日が未設定の記事も同じく収集ランの対象期間で出す（どの週にも出てこなくなるため）
 
-そのため、週報を「先週ぶん」として登録すると、本体の記事は先週・補足は登録した週に分かれて出る。
-記事を収集ラン（`CollectionRun`）に紐付ければ対象期間で揃えられるが、スキーマ変更が要るため
-#32では行っていない。
+`IndustryInformation.collectionRunId`は`importWeeklyReport()`・`runWeeklyCollection()`が登録時に
+埋める（#37）。これで「1回の週報として登録した記事」が本体・補足そろって同じ週に出る。判定は
+**期間の重なり**（`targetFrom < 週の終わり` かつ `targetTo > 週の始まり`）で、`targetTo`が翌週の
+月曜0時ちょうどでも翌週へはみ出さない。逆に、対象期間が週境界をまたぐラン
+（`runWeeklyCollection()`の直近7日）では補足が隣り合う2週の両方に出る——本体の記事も公開日で
+2週へ分かれるため、揃えるという目的とは整合する。
+
+**収集ランに紐付いていない記事（#37より前に登録したもの）は、従来どおり収集日（`collectedAt`）の
+週で拾う。** 移行データは作っていないので、この分岐を消すと過去の補足が画面から消える。
 
 ### 絞り込みはクエリ側で行う
 

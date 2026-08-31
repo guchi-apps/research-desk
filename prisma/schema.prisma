@@ -69,6 +69,7 @@ model CollectionRun {
   duplicateCount  Int               @default(0)
   failedCount     Int               @default(0)
   errors          Json?
+  industryInformation IndustryInformation[]
 
   @@index([startedAt])
   @@map("collection_runs")
@@ -103,6 +104,8 @@ model IndustryInformation {
   keywords           Json?
   tags               Json?
   periodScope        IndustryPeriodScope     @default(IN_SCOPE)
+  collectionRunId    String?
+  collectionRun      CollectionRun?          @relation(fields: [collectionRunId], references: [id], onDelete: SetNull)
   canonicalId        String?
   canonical           IndustryInformation?   @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
   relatedReprints    IndustryInformation[]  @relation("IndustryInformationCanonical")
@@ -112,6 +115,7 @@ model IndustryInformation {
   @@index([business, informationType])
   @@index([importance, publishedAt])
   @@index([periodScope, publishedAt])
+  @@index([collectionRunId])
   @@index([canonicalId])
   @@map("industry_information")
 }
