@@ -68,11 +68,14 @@ export function formatDateTime(date: Date): string {
   return `${month}月${day}日 ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
-// 週の判定は公開日（`publishedAt`）を基準にする。ただし補足（過去30日から拾った記事）は
-// 公開日が対象週より前になるため、公開日で絞ると「その週の週報として登録したのに画面に
-// 出てこない」になる。補足と公開日が未設定の記事は、登録した収集ラン（`CollectionRun`）の
-// 対象期間が重なる週に出す（#37）。これで1回の週報の本体・補足が同じ週へ揃う。
-// ランに紐付いていない記事（#37より前に登録したもの）は、従来どおり収集日で拾う。
+// 週の判定は公開日（`publishedAt`）を基準にする。公開日が未設定の記事は、発生日（`occurredAt`）が
+// 入っていればそちらで判定する（#52）。公開日未設定の記事を機械的に「登録した日」の週へ出すと、
+// 記事の内容と表示週がズレるため（AIDE経由の週報登録では公開日を付けない記事もある）。
+// 発生日も未設定の場合、および補足（過去30日から拾った記事）は、登録した収集ラン
+// （`CollectionRun`）の対象期間が重なる週に出す（#37）。補足は公開日・発生日が対象週より
+// 前になるため、それらで絞ると「その週の週報として登録したのに画面に出てこない」になる。
+// これで1回の週報の本体・補足が同じ週へ揃う。ランに紐付いていない記事（#37より前に登録した
+// もの）は、従来どおり収集日で拾う。
 function runOrCollectedCondition(range: WeekRange): Prisma.IndustryInformationWhereInput[] {
   return [
     // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の日曜0時ちょうどでも翌週には出さない）。
@@ -82,13 +85,19 @@ function runOrCollectedCondition(range: WeekRange): Prisma.IndustryInformationWh
 }
 
 /** 指定した週（JST日曜0時〜翌週日曜0時）に属するかどうかの絞り込み条件。`src/lib/collection.ts`の
- * イベント統合・週あたり上限判定も、表示と同じ週の切り方に揃えるためこれを再利用する。 */
+ * イベント統合・週あたり上限判定も、表示と同じ週の切り方に揃えるためこれを再利用する。
+ *
+ * `src/lib/collection.ts`側のイベント統合判定（`findEventMatch()`・`referenceDate`）は、これとは
+ * 別の理由で発生日→公開日の優先順位を使う（転載記事は発行元により公開日がバラつくため、同一
+ * イベントかどうかの判定には事象そのものが起きた日を優先する方が適切）。表示側であるここは
+ * 「読者が見る週」を決める基準（公開日→発生日）で、意図的に優先順位が異なる。 */
 export function weekCondition(range: WeekRange): Prisma.IndustryInformationWhereInput {
   const byRunOrCollected = runOrCollectedCondition(range);
   return {
     OR: [
       { periodScope: "IN_SCOPE", publishedAt: { gte: range.start, lt: range.end } },
-      { periodScope: "IN_SCOPE", publishedAt: null, OR: byRunOrCollected },
+      { periodScope: "IN_SCOPE", publishedAt: null, occurredAt: { gte: range.start, lt: range.end } },
+      { periodScope: "IN_SCOPE", publishedAt: null, occurredAt: null, OR: byRunOrCollected },
       { periodScope: "PAST_30_DAYS_SUPPLEMENT", OR: byRunOrCollected },
     ],
   };

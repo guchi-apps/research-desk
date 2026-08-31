@@ -31,7 +31,7 @@ function Card({ item, latestRunId }: { item: IndustryInformationListItem; latest
   const mergedSources = toMergedSources(item.mergedSources);
   return <article className={`news-card ${supplement ? "supplement" : ""}`}>
     <div className="news-head">
-      <div><h3>{item.title}</h3><p className="meta">{formatDate(item.publishedAt ?? item.collectedAt)}　·　{item.sourceName}　·　{item.isPrimarySource ? "一次情報" : "関連記事"}</p></div>
+      <div><h3>{item.title}</h3><p className="meta">{formatDate(item.publishedAt ?? item.occurredAt ?? item.collectedAt)}　·　{item.sourceName}　·　{item.isPrimarySource ? "一次情報" : "関連記事"}</p></div>
       <div className="badge-col">
         {status && <span className={`status-pill ${status}`}>{status === "new" ? "NEW" : "更新"}</span>}
         <span className={`badge ${item.importance === "HIGH" ? "high" : ""}`}>{supplement ? "30日以内" : `重要度 ${importanceLabels[item.importance]}`}</span>
