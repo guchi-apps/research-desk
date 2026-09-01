@@ -2,11 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-
-// スワイプでの週送りしきい値。タップ・縦スクロール・.filtersの横スクロール中の巻き込みを
-// 避けるため、水平方向の移動量を優先的に見る（#53）。
-const SWIPE_MIN_DISTANCE_PX = 60;
-const SWIPE_DIRECTION_RATIO = 1.5;
+import { EDGE_ZONE_PX, SWIPE_DIRECTION_RATIO, SWIPE_MIN_DISTANCE_PX } from "@/lib/nav-swipe";
 
 type Point = { x: number; y: number };
 
@@ -32,6 +28,12 @@ export default function SwipeWeekNav({ prevHref, nextHref }: { prevHref: string 
         return;
       }
       const touch = event.touches[0];
+      // 画面左端から始まったスワイプはメニューの引き出し（`AppShell`）の担当なので、
+      // 週送りとしては扱わない。両方が反応すると、開いたメニューの背後で週が変わる（#80）。
+      if (touch.clientX <= EDGE_ZONE_PX) {
+        start = null;
+        return;
+      }
       start = { x: touch.clientX, y: touch.clientY };
     }
 
