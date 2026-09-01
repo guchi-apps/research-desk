@@ -1,0 +1,95 @@
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+import { canAcceptReport, classifyFailure, FAILURE_MESSAGE_LIMIT, isDuplicateJobError, isLeaseExpired, shouldAutoExcludeFromWeekly } from "./analysis-job-rules.ts";
+
+describe("classifyFailure", () => {
+  it("ChatGPTのログインが切れていたら認証待ちにする", () => {
+    const result = classifyFailure({ exitCode: 1, stderrTail: "ERROR: Not logged in. Please run `codex login`.", codexAuthMode: "chatgpt" });
+    assert.equal(result.status, "AUTH_REQUIRED");
+    assert.equal(result.failureKind, "AUTH_REQUIRED");
+    assert.match(result.message, /codex login status/);
+  });
+
+  it("APIキー認証へ切り替わっていたら、実行が成功しうる状態でも認証待ちで止める", () => {
+    const result = classifyFailure({ exitCode: 0, stderrTail: null, codexAuthMode: "api_key" });
+    assert.equal(result.status, "AUTH_REQUIRED");
+    assert.match(result.message, /api_key/);
+  });
+
+  it("未ログイン（auth.jsonが無い）も認証待ちにする", () => {
+    assert.equal(classifyFailure({ exitCode: 1, stderrTail: null, codexAuthMode: "not_logged_in" }).status, "AUTH_REQUIRED");
+  });
+
+  it("利用枠に達した場合は失敗にし、再実行できることを伝える", () => {
+    const result = classifyFailure({ exitCode: 1, stderrTail: "429 Too Many Requests: usage limit reached", codexAuthMode: "chatgpt" });
+    assert.equal(result.status, "FAILED");
+    assert.equal(result.failureKind, "RATE_LIMITED");
+    assert.match(result.message, /再実行/);
+  });
+
+  it("時間切れはTIMEOUTとして残す", () => {
+    const result = classifyFailure({ exitCode: null, stderrTail: "", codexAuthMode: "chatgpt", timedOut: true });
+    assert.equal(result.failureKind, "TIMEOUT");
+  });
+
+  it("それ以外の実行失敗は終了コードを添えてEXECUTION_FAILEDにする", () => {
+    const result = classifyFailure({ exitCode: 127, stderrTail: "codex: command not found", codexAuthMode: "chatgpt" });
+    assert.equal(result.status, "FAILED");
+    assert.equal(result.failureKind, "EXECUTION_FAILED");
+    assert.match(result.message, /127/);
+  });
+
+  it("長い実行ログは保存する長さまで切り詰める", () => {
+    const result = classifyFailure({ exitCode: 1, stderrTail: "x".repeat(5000), codexAuthMode: "chatgpt" });
+    assert.ok(result.message.length <= FAILURE_MESSAGE_LIMIT + 1);
+  });
+
+  it("認証方式が不明（ポーラーが送ってこない）ときは内容だけで判断する", () => {
+    assert.equal(classifyFailure({ exitCode: 1, stderrTail: "boom", codexAuthMode: null }).failureKind, "EXECUTION_FAILED");
+  });
+});
+
+describe("重複ジョブ", () => {
+  it("activeKeyのUNIQUE制約違反（P2002）を重複として扱う", () => {
+    assert.equal(isDuplicateJobError({ code: "P2002" }), true);
+  });
+
+  it("それ以外のDBエラーは重複として握りつぶさない", () => {
+    assert.equal(isDuplicateJobError({ code: "P2003" }), false);
+    assert.equal(isDuplicateJobError(new Error("connection lost")), false);
+    assert.equal(isDuplicateJobError(null), false);
+  });
+});
+
+describe("結果の受け付け", () => {
+  it("実行中のジョブの結果だけを受け付ける", () => {
+    assert.equal(canAcceptReport("RUNNING"), true);
+  });
+
+  it("リース切れで待ちへ戻ったジョブへ遅れて届いた結果は受け付けない", () => {
+    for (const status of ["QUEUED", "COMPLETED", "FAILED", "AUTH_REQUIRED"] as const) {
+      assert.equal(canAcceptReport(status), false, status);
+    }
+  });
+
+  it("リースの期限切れを判定できる", () => {
+    const now = new Date("2026-09-01T12:00:00Z");
+    assert.equal(isLeaseExpired(new Date("2026-09-01T11:59:59Z"), now), true);
+    assert.equal(isLeaseExpired(new Date("2026-09-01T12:00:01Z"), now), false);
+    assert.equal(isLeaseExpired(null, now), false);
+  });
+});
+
+describe("週報候補からの自動除外", () => {
+  it("対象外と判定された未確定の記事は週報候補から外す", () => {
+    assert.equal(shouldAutoExcludeFromWeekly("OUT_OF_SCOPE", null), true);
+  });
+
+  it("人が確定済みの記事はAIの判定で書き換えない", () => {
+    assert.equal(shouldAutoExcludeFromWeekly("OUT_OF_SCOPE", new Date("2026-08-31T00:00:00Z")), false);
+  });
+
+  it("対象内と判定された記事は外さない", () => {
+    assert.equal(shouldAutoExcludeFromWeekly("DELIVERY", null), false);
+  });
+});
