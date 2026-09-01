@@ -12,11 +12,24 @@ import { NextResponse } from "next/server";
  * 通過した場合は null を返す。呼び出し側が「返り値があればそのまま返す」だけで済む形にする。
  */
 export function requireInternalApiKey(request: Request): NextResponse | null {
-  const expected = process.env.INTERNAL_API_KEY;
+  return requireBearerSecret(request, process.env.INTERNAL_API_KEY, "internal_api_not_configured");
+}
 
+/**
+ * サブPCの解析ポーラー（`/api/internal/analysis/*`）の認証（#79）。
+ *
+ * AIDEと**別のシークレット**にしてある。AIDEは同一VPS内（127.0.0.1）からの呼び出しだが、
+ * ポーラーはサブPCからインターネット越しに来る別の主体で、片方を無効化しても もう片方が
+ * 止まらないようにするため（issue-deckも`DISPATCH_SECRET`を進捗報告用と分けている）。
+ */
+export function requireAnalysisWorkerSecret(request: Request): NextResponse | null {
+  return requireBearerSecret(request, process.env.ANALYSIS_WORKER_SECRET, "analysis_worker_not_configured");
+}
+
+function requireBearerSecret(request: Request, expected: string | undefined, notConfiguredError: string): NextResponse | null {
   // 未設定を「素通り」にはしない。設定漏れがそのまま認証なしの公開に化けるのを防ぐ。
   if (!expected) {
-    return json({ error: "internal_api_not_configured" }, 503);
+    return json({ error: notConfiguredError }, 503);
   }
 
   const header = request.headers.get("authorization");

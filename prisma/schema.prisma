@@ -119,6 +119,20 @@ model IndustryInformation {
   canonicalId        String?
   canonical           IndustryInformation?   @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
   relatedReprints    IndustryInformation[]  @relation("IndustryInformationCanonical")
+  // --- AI解析（#79） -----------------------------------------------------------------
+  // `analysisStatus`・`analyzedAt`は最新ジョブの状態を写した非正規化列。絞り込みをPrismaの
+  // `where`で行うため（週あたり10件でもJS側で絞ると週送り・件数表示がズレる）、ジョブの状態を
+  // 変える処理はすべて`src/lib/article-analysis.ts`の同一トランザクション内でここも更新する。
+  analysisStatus     AnalysisJobStatus?
+  analyzedAt         DateTime?
+  // 人が確定した内容。AIの生成内容は`ArticleAnalysis`側に残り、ここは上書きしない
+  // （`business`・`importance`は人が確定したときだけ書き換わり、`reviewedAt`がその印になる）。
+  weeklyCandidate    Boolean                 @default(true)
+  reviewedAt         DateTime?
+  reviewedBy         String?
+  reviewNote         String?                 @db.Text
+  analysisJobs       ArticleAnalysisJob[]
+  analyses           ArticleAnalysis[]
   createdAt          DateTime                @default(now())
   updatedAt          DateTime                @updatedAt
 
@@ -128,5 +142,104 @@ model IndustryInformation {
   @@index([collectionRunId])
   @@index([updatedByRunId])
   @@index([canonicalId])
+  @@index([analysisStatus])
+  @@index([weeklyCandidate])
   @@map("industry_information")
+}
+
+// --- 記事のAI解析（#79） ---------------------------------------------------------------
+// 解析役はサブPC上のCodex CLI（ChatGPTアカウント認証）。Research Deskはジョブを積むだけで、
+// 常駐ポーラーが`POST /api/internal/analysis/claim`で取得し、`.../report`で結果を返す。
+
+enum AnalysisJobStatus {
+  QUEUED
+  RUNNING
+  COMPLETED
+  FAILED
+  AUTH_REQUIRED
+}
+
+/// 失敗の理由。画面で「再実行すれば直るのか」「人が先に何かする必要があるのか」を出し分ける。
+enum AnalysisFailureKind {
+  AUTH_REQUIRED
+  RATE_LIMITED
+  INVALID_OUTPUT
+  EXECUTION_FAILED
+  TIMEOUT
+}
+
+/// AIが判定した関連性。`OUT_OF_SCOPE`は芸能・スポーツ等のノイズ記事。
+enum AnalysisRelevance {
+  DELIVERY
+  LOCKER
+  OUT_OF_SCOPE
+}
+
+model ArticleAnalysisJob {
+  id             String               @id @default(cuid())
+  articleId      String
+  article        IndustryInformation  @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  // 同一記事の二重実行を防ぐ鍵。`QUEUED`・`RUNNING`の間だけ`articleId`が入り、終了時にnullへ戻す。
+  // MySQLのUNIQUEはNULLの重複を許すため、これだけで「実行中は1本」をDBで保証できる。
+  activeKey      String?              @unique
+  status         AnalysisJobStatus    @default(QUEUED)
+  attempt        Int                  @default(1)
+  requestedBy    String?
+  queuedAt       DateTime             @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  // ポーラーが取得した時点で入れる期限。過ぎたジョブは落ちたものとみなして再度取得できる。
+  leaseExpiresAt DateTime?
+  workerHost     String?
+  failureKind    AnalysisFailureKind?
+  failureMessage String?              @db.Text
+  analysis       ArticleAnalysis?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([status, queuedAt])
+  @@index([articleId, queuedAt])
+  @@map("article_analysis_jobs")
+}
+
+model ArticleAnalysis {
+  id              String              @id @default(cuid())
+  articleId       String
+  article         IndustryInformation @relation(fields: [articleId], references: [id], onDelete: Cascade)
+  jobId           String              @unique
+  job             ArticleAnalysisJob  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  relevance       AnalysisRelevance
+  confidence      Float
+  reason          String              @db.Text
+  noiseReason     String?             @db.Text
+  summary         String              @db.Text
+  fullSummary     String?             @db.Text
+  announcedOn     DateTime?
+  // 項目が増えても移行なしで保持できるようJSONにする（`extractedMetrics`と同じ方針）。
+  regions         Json?
+  metrics         Json?
+  implications    String?             @db.Text
+  importance      IndustryImportance  @default(REFERENCE)
+  duplicates      Json?
+  relatedFindings Json?
+  model           String?
+  codexAuthMode   String?
+  durationMs      Int?
+  createdAt       DateTime            @default(now())
+
+  @@index([articleId, createdAt])
+  @@map("article_analyses")
+}
+
+/// 常駐ポーラーの生存確認。`claim`のたびに更新し、画面の実行環境表示に使う。
+/// `codexAuthMode`が`chatgpt`以外（APIキー認証へ切り替わった等）になったら画面で警告する。
+model AnalysisWorker {
+  host          String   @id
+  lastSeenAt    DateTime @default(now())
+  codexAuthMode String?
+  codexVersion  String?
+  lastError     String?  @db.Text
+  updatedAt     DateTime @updatedAt
+
+  @@map("analysis_workers")
 }

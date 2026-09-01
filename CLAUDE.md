@@ -37,8 +37,15 @@
 ```bash
 pnpm lint
 pnpm typecheck
+pnpm test
 pnpm build:ci
 ```
+
+**`pnpm test`は`node --test 'src/**/*.test.ts'`で、DBに繋がない純粋なロジックだけを対象にする**
+（#79）。Node 24が型を剥がしてTypeScriptのまま実行するため、テスト用の依存もビルド手順も要らない。
+テストから読めるのは**Prismaをimportしないモジュールだけ**なので、テストしたいロジックは
+`src/lib/analysis-job-rules.ts`のようにDB操作から切り離した場所へ置く。テストは対象を`./x.ts`と
+拡張子つきでimportするため、`tsconfig.json`に`allowImportingTsExtensions`が要る。
 
 **`typecheck` は `next typegen && tsc --noEmit` にしておくこと**（guchi-apps/issue-deck#2378）。
 Next.js 16の `PageProps` / `LayoutProps` / `RouteContext` は `.next/types` へ生成される

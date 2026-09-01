@@ -1,0 +1,38 @@
+[Unit]
+# 記事AI解析のポーラー（#79）。サブPCで常駐し、Research Deskの解析ジョブを一定間隔で取りに行き、
+# ChatGPTアカウントでログイン済みの Codex CLI に解析させて結果を返す。
+#
+# **サブPCの `~/.config/systemd/user/` は `guchi-apps/subpc` の管理対象外**（issue-deckの
+# `src/lib/infra-config-repos.ts` に受け口が無い）ため、このunitはこのリポジトリで持ち、
+# 設置は手作業Issueで行う。設置手順は docs/architecture.md「サブPC側の設置」を参照。
+#
+# **ポーリング間隔はこのunitではなく `~/.config/research-desk/analysis-worker.env` の
+# `ANALYSIS_POLL_INTERVAL_SECONDS` で決める**（issue-deckのdispatch pollerと同じ考え方。
+# systemd timerに間隔を持たせると、変更のたびにunitの編集と `daemon-reload` が要る）。
+Description=research-desk article analysis poller (Codex CLI)
+Documentation=https://github.com/guchi-apps/research-desk/blob/develop/docs/architecture.md
+After=network-online.target
+Wants=network-online.target
+
+# 設定不備で即死を繰り返す場合に、無限に再起動し続けないようにする。
+# **[Service]ではなく[Unit]に置く**（systemd 229以降の位置。[Service]に書くと無視される）。
+StartLimitIntervalSec=5min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+
+# 共有シークレット（ANALYSIS_WORKER_SECRET）は chmod 600 のファイルから読む。
+# **このファイルを変更したら `systemctl --user restart` が要る**（起動時に読むため）。
+EnvironmentFile=%h/.config/research-desk/analysis-worker.env
+
+# ログインシェルを経由させ、`~/.profile.local` が通す PATH（node・codex）を読ませる。
+ExecStart=/bin/bash -lc '%h/apps/research-desk/scripts/codex-analysis-worker.mjs'
+
+# 落ちても復帰させる。1巡の失敗ではプロセスを終わらせない作りなので、ここへ来るのは
+# 設定不備（起動直後に終了する）か想定外の異常のどちらか。
+Restart=always
+RestartSec=30s
+
+[Install]
+WantedBy=default.target
