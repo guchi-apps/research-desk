@@ -25,6 +25,12 @@
 
 技術構成・認証フロー・DBスキーマの現状は [docs/architecture.md](docs/architecture.md) を参照。
 
+**本番のPM2にはプロセスが2つある**（#86）。Next.js本体（`research-desk`）と、記事AI解析の
+ポーラー（`research-desk-analysis-worker`。VPS上のCodex CLIを起動する）で、どちらも
+`deploy/ecosystem.config.js`に居る。**`ecosystem.config.js`へアプリを足したら`deploy.yml`の
+`pm2 delete`にも名前を足すこと**——`pm2 start`は既に居る同名プロセスを置き換えないため、
+足し忘れると**そのプロセスだけ古い配布物のまま動き続ける**（デプロイは成功する）。
+
 ## 出力言語
 
 エージェントの出力は日本語で書く。対象は成果物（コミットメッセージ・PR・Issueコメント）

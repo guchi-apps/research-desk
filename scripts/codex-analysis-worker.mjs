@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * 記事AI解析の常駐ポーラー（#79）。サブPCで動かす。
+ * 記事AI解析の常駐ポーラー（#79・#86）。**アプリと同じVPS上でPM2が常駐させる**
+ * （`deploy/ecosystem.config.js`の`research-desk-analysis-worker`）。
  *
  * Research Deskの `POST /api/internal/analysis/claim` からジョブを取り、ChatGPTアカウントで
  * ログイン済みの Codex CLI（`codex exec`）へ流し、結果を `.../report` へ返すだけの実行役。
@@ -10,9 +11,11 @@
  * ChatGPTの契約枠を使うため、`OPENAI_API_KEY`は子プロセスの環境から必ず取り除く
  * （残っているとCodexがAPIキー認証へ切り替わり、従量課金で回り続けてしまう）。
  *
- * 設定は環境変数で渡す（サブPCでは systemd user unit の EnvironmentFile を想定）。
+ * 設定は環境変数か、リポジトリ直下の`.env`（アプリ本体と同じファイル）から読む。
+ * **PM2は`.env`を読まない**ので、共有シークレットをPM2のダンプ（`~/.pm2/dump.pm2`）へ
+ * 持ち出さずに済むよう、このスクリプト自身が`.env`を読む。環境変数のほうが優先。
  *
- *   RESEARCH_DESK_URL              例: https://research-desk.gucchii.com
+ *   RESEARCH_DESK_URL              既定 http://127.0.0.1:<PORT>（同じホストのアプリを叩く）
  *   ANALYSIS_WORKER_SECRET         Research Desk側の同名の環境変数と同じ値
  *   ANALYSIS_WORKER_HOST           既定はホスト名
  *   ANALYSIS_POLL_INTERVAL_SECONDS 既定 60
@@ -25,11 +28,47 @@
  */
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { hostname, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const BASE_URL = (process.env.RESEARCH_DESK_URL ?? "").replace(/\/+$/, "");
+/** このスクリプトから見たリポジトリ（VPSでは配布先ディレクトリ）の直下。 */
+const APP_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
+
+/**
+ * アプリ本体と同じ`.env`から設定を読む（すでに環境にある値は上書きしない）。
+ *
+ * `node --env-file`を使わないのは、VPSのNodeのバージョンに依存させないため。
+ * 値の引用符だけを外す簡素な実装で、`export`や複数行の値は扱わない（この用途には要らない）。
+ */
+function loadEnvFile(path) {
+  let text;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return; // 無ければ環境変数だけで動く（開発時・systemd運用時）
+  }
+  for (const line of text.split("\n")) {
+    const match = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
+    if (!match) continue;
+    const key = match[1];
+    if (process.env[key] !== undefined) continue;
+    let value = match[2].trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+loadEnvFile(join(APP_DIR, ".env"));
+
+// 実行役はアプリと同じホストに居る（#86）。既定の接続先をlocalhostにして、解析の要求が
+// インターネットとApacheのリバースプロキシを経由しないようにする。
+const DEFAULT_BASE_URL = `http://127.0.0.1:${process.env.PORT || 3115}`;
+const BASE_URL = (process.env.RESEARCH_DESK_URL || DEFAULT_BASE_URL).replace(/\/+$/, "");
 const SECRET = process.env.ANALYSIS_WORKER_SECRET ?? "";
 const HOST = process.env.ANALYSIS_WORKER_HOST ?? hostname();
 const POLL_INTERVAL_MS = Number(process.env.ANALYSIS_POLL_INTERVAL_SECONDS ?? 60) * 1000;
@@ -45,15 +84,19 @@ function log(message) {
   process.stdout.write(`[${new Date().toISOString()}] ${message}\n`);
 }
 
-function requireConfig() {
-  const missing = [];
-  if (!BASE_URL) missing.push("RESEARCH_DESK_URL");
-  if (!SECRET) missing.push("ANALYSIS_WORKER_SECRET");
-  if (missing.length > 0) {
-    process.stderr.write(`設定が足りません: ${missing.join(", ")}\n`);
-    process.exit(1);
-  }
+/**
+ * 足りない設定の一覧。**足りなくてもプロセスは終わらせない**（#86）。
+ *
+ * PM2が常駐させるため、起動直後に`exit(1)`すると再起動ループになる。共有シークレットが
+ * 本番の`.env`へ入るのはデプロイ時なので、入るまでは待つだけにして、入った後の再起動で
+ * そのまま動き出せるようにする。
+ */
+function missingConfig() {
+  return SECRET ? [] : ["ANALYSIS_WORKER_SECRET"];
 }
+
+/** 設定が足りないときの待ち時間。ログを埋めないよう、通常のポーリングより長く空ける。 */
+const IDLE_INTERVAL_MS = Math.max(POLL_INTERVAL_MS, 600_000);
 
 async function api(path, body) {
   const response = await fetch(`${BASE_URL}${path}`, {
@@ -185,9 +228,8 @@ async function tick(codexVersion) {
 }
 
 async function main() {
-  requireConfig();
   const codexVersion = await readCodexVersion();
-  log(`ポーラーを開始します（host=${HOST} / codex=${codexVersion ?? "不明"} / 間隔${POLL_INTERVAL_MS / 1000}秒）`);
+  log(`ポーラーを開始します（host=${HOST} / 接続先=${BASE_URL} / codex=${codexVersion ?? "不明"} / 間隔${POLL_INTERVAL_MS / 1000}秒）`);
 
   let running = true;
   for (const signal of ["SIGINT", "SIGTERM"]) {
@@ -195,14 +237,19 @@ async function main() {
   }
 
   while (running) {
-    try {
-      await tick(codexVersion);
-    } catch (error) {
-      // 1回の失敗で常駐を止めない（Research Deskの再起動・一時的な通信断で落ちないようにする）。
-      log(`ポーリングに失敗しました: ${String(error.message).slice(0, 300)}`);
+    const missing = missingConfig();
+    if (missing.length > 0) {
+      log(`設定が足りないため待機します（${missing.join(", ")}）。値が入ったら再起動してください。`);
+    } else {
+      try {
+        await tick(codexVersion);
+      } catch (error) {
+        // 1回の失敗で常駐を止めない（Research Deskの再起動・一時的な通信断で落ちないようにする）。
+        log(`ポーリングに失敗しました: ${String(error.message).slice(0, 300)}`);
+      }
     }
     if (!running) break;
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    await new Promise((resolve) => setTimeout(resolve, missing.length > 0 ? IDLE_INTERVAL_MS : POLL_INTERVAL_MS));
   }
   log("停止しました。");
 }

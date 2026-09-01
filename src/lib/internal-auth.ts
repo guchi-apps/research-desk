@@ -16,11 +16,11 @@ export function requireInternalApiKey(request: Request): NextResponse | null {
 }
 
 /**
- * サブPCの解析ポーラー（`/api/internal/analysis/*`）の認証（#79）。
+ * 記事AI解析のポーラー（`/api/internal/analysis/*`）の認証（#79・#86）。
  *
- * AIDEと**別のシークレット**にしてある。AIDEは同一VPS内（127.0.0.1）からの呼び出しだが、
- * ポーラーはサブPCからインターネット越しに来る別の主体で、片方を無効化しても もう片方が
- * 止まらないようにするため（issue-deckも`DISPATCH_SECRET`を進捗報告用と分けている）。
+ * AIDEと**別のシークレット**にしてある。#86でポーラーがVPSへ移り、AIDEと同じく同一VPS内
+ * （127.0.0.1）からの呼び出しになったが、呼び出し元は別の主体のままで、片方を無効化しても
+ * もう片方が止まらないようにするため（issue-deckも`DISPATCH_SECRET`を進捗報告用と分けている）。
  */
 export function requireAnalysisWorkerSecret(request: Request): NextResponse | null {
   return requireBearerSecret(request, process.env.ANALYSIS_WORKER_SECRET, "analysis_worker_not_configured");

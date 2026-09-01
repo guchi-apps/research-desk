@@ -38,10 +38,10 @@ export default function ArticleAnalysisBlock({ item }: { item: IndustryInformati
         <p className={`ai-hint ${status === "FAILED" ? "fail" : ""}`}>
           {job.failureKind ? FAILURE_KIND_LABELS[job.failureKind] : "解析に失敗しました"}
           {job.failureMessage ? `　${job.failureMessage}` : ""}
-          {status === "AUTH_REQUIRED" && <>　サブPCで <code>codex login status</code> を確認し、<code>codex login</code> でログインし直すと、この記事はそのまま再実行できます。記事データは失われていません。</>}
+          {status === "AUTH_REQUIRED" && <>　VPSで <code>codex login status</code> を確認し、<code>codex login</code> でログインし直すと、この記事はそのまま再実行できます。記事データは失われていません。</>}
         </p>
       )}
-      {status === "RUNNING" && <p className="ai-reason">サブPCで実行中です。完了するまで「AI解析」は押せません（同じ記事の二重実行を防ぐため）。</p>}
+      {status === "RUNNING" && <p className="ai-reason">VPS上で実行中です。完了するまで「AI解析」は押せません（同じ記事の二重実行を防ぐため）。</p>}
     </div>
   );
 }

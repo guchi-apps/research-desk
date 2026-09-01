@@ -159,6 +159,7 @@ jobs:
             deploy \
             scripts/construct-database-url.sh \
             scripts/update-env-file.sh \
+            scripts/codex-analysis-worker.mjs \
             next.config.ts
 
       - name: Upload artifact
@@ -272,7 +273,7 @@ jobs:
 
             echo "Cleaning up old release files..."
             # 配布物を増やしたらこの行にも足す。永続させたいディレクトリは絶対に入れない。
-            rm -rf package.json pnpm-lock.yaml public .next prisma deploy next.config.ts
+            rm -rf package.json pnpm-lock.yaml public .next prisma deploy scripts next.config.ts
 
             echo "Extracting archive..."
             tar -xzf deploy.tar.gz
@@ -307,7 +308,10 @@ jobs:
 
             echo "Restarting PM2..."
             if command -v pm2 >/dev/null 2>&1; then
+              # 記事AI解析のポーラー（#86）もこの ecosystem に入っている。名前を挙げて
+              # 消さないと古いプロセスが残り、新しい配布物で起動し直されない。
               pm2 delete research-desk 2>/dev/null || true
+              pm2 delete research-desk-analysis-worker 2>/dev/null || true
               PORT="$PORT" pm2 start deploy/ecosystem.config.js --env production
               pm2 save
             else
@@ -318,18 +322,35 @@ jobs:
             echo "Health check..."
             # Next.js は起動完了までに数秒かかる。1回だけのcurlでは起動が間に合わずに
             # 失敗するため、一定時間リトライする。
+            APP_OK=0
             for i in $(seq 1 30); do
               if curl -fsS -o /dev/null "http://127.0.0.1:${PORT}/"; then
-                echo "Deployment successful."
-                exit 0
+                APP_OK=1
+                break
               fi
               sleep 2
             done
 
-            echo "Health check failed after 60s."
-            pm2 describe research-desk || true
-            pm2 logs research-desk --lines 50 --nostream || true
-            exit 1
+            if [ "$APP_OK" != 1 ]; then
+              echo "Health check failed after 60s."
+              pm2 describe research-desk || true
+              pm2 logs research-desk --lines 50 --nostream || true
+              exit 1
+            fi
+
+            # 記事AI解析のポーラー（#86）。**落ちていてもデプロイは失敗させない**——
+            # 解析が動かないだけで、収集・週報・画面表示は影響を受けないため。
+            # ポーラーは共有シークレット未設定でもプロセスを終わらせない作りなので、
+            # ここが online でなければ配布か起動そのものの問題。
+            if pm2 describe research-desk-analysis-worker 2>/dev/null | grep -q "online"; then
+              echo "Analysis worker is online."
+            else
+              echo "::warning::記事AI解析のポーラー（research-desk-analysis-worker）が起動していません。pm2 logs research-desk-analysis-worker で確認してください。"
+              pm2 logs research-desk-analysis-worker --lines 30 --nostream || true
+            fi
+
+            echo "Deployment successful."
+            exit 0
 
       # **deployジョブの成功は公開できたことを保証しない**（guchi-apps/issue-deck#2252）。
       # 上のヘルスチェックが叩くのはVPS内の127.0.0.1で、ApacheのVirtualHostが無くても通る。

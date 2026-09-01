@@ -21,7 +21,7 @@ export default function AnalysisStatusStrip({ overview, now = new Date() }: { ov
       <span className="auth-tag">{worker ? (chatgptAuth ? "ChatGPTアカウント認証" : `認証方式 ${worker.codexAuthMode ?? "不明"}`) : "未接続"}</span>
       <i className="sep" />
       <span>
-        {worker ? `サブPC ${worker.host} · 最終応答 ${formatElapsed(worker.lastSeenAt, now)}` : "解析を実行するサブPCがまだ接続していません"}
+        {worker ? `${worker.host} · 最終応答 ${formatElapsed(worker.lastSeenAt, now)}` : "解析を実行するポーラーがまだ接続していません"}
         {worker && stale ? "（停止中）" : ""}
       </span>
       <span className="queue">

@@ -4,7 +4,7 @@ import { json, requireAnalysisWorkerSecret } from "@/lib/internal-auth";
 export const runtime = "nodejs";
 
 /**
- * サブPCの常駐ポーラーが解析結果を返す口（#79）。
+ * VPS上の常駐ポーラーが解析結果を返す口（#79）。
  *
  * 失敗の分類（ログイン切れ・利用枠到達・出力不正）はサーバー側の`classifyFailure()`が行う。
  * ポーラーは終了コードと標準エラーの末尾だけを送り、判定条件を持たない。

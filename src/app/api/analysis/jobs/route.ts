@@ -8,7 +8,7 @@ export const runtime = "nodejs";
  * 画面の「AI解析」「再解析」から解析ジョブを積む（#79）。
  *
  * 呼び出し元はブラウザなので、`/api/internal/*`の共有シークレットではなくSupabaseのセッションで
- * 認証する（`/api/image-mail/send`と同じ考え方）。実際に解析するのはサブPCのポーラーで、
+ * 認証する（`/api/image-mail/send`と同じ考え方）。実際に解析するのはVPS上のポーラーで、
  * ここはキューに載せるところまでしか行わない。
  */
 export async function POST(request: Request) {

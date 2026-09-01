@@ -4,10 +4,10 @@ import { json, requireAnalysisWorkerSecret } from "@/lib/internal-auth";
 export const runtime = "nodejs";
 
 /**
- * サブPCの常駐ポーラーが解析ジョブを取りに来る口（#79）。
+ * VPS上の常駐ポーラーが解析ジョブを取りに来る口（#79）。
  *
  * 応答にはプロンプトと出力スキーマを載せる。ポーラーは受け取った文面を`codex exec`へ流すだけの
- * 実行役で、解析の観点を変えてもサブPCへスクリプトを配り直さずに済むようにしてある。
+ * 実行役で、解析の観点を変えてもポーラーへスクリプトを配り直さずに済むようにしてある。
  * 記事本文はプロンプトの中にだけ入り、ログへは出さない。
  */
 export async function POST(request: Request) {
