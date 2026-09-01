@@ -292,6 +292,34 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 ログアウト）は`src/components/HeaderUserMenu.tsx`に共通化し、あわせて設定画面への⚙ボタンを
 追加した。⚙ボタンは`globals.css`側で`display:none`が既定で、`@media(max-width:767px)`の
 中でだけ`display:grid`に切り替える（PC・iPadでは従来どおりアバター＋ログアウトのまま）。
+**この⚙ボタンは#80でスマホ用の固定バー（後述）へ移した。**
+
+## スマホのメニュー（#80）
+
+サイドバー（`src/app/(app)/layout.tsx`）は`globals.css`の`@media(max-width:767px)`で
+`display:none`にしていたため、**スマホでは画面上のどこからも「画像を送る」（#64）へ
+たどり着けなかった。** サイドバーに`📷　画像を送る`のリンクはあり、PC・iPadでは開けていた
+ぶん、Issueとしても気づきにくい形で残っていた。iPad（横1180px）は767pxを超えるのでPCと同じ
+配置になり、**スマホでだけ導線が消える**。
+
+- **サイドバーは非表示にせず、引き出し（ドロワー）へ切り替える。** `src/components/AppShell.tsx`
+  （クライアント）が`app-shell`の外殻を持ち、スマホ幅では`.sidebar`を`position:fixed`＋
+  `transform:translateX(-100%)`にして、`.app-shell.nav-open`が付いたときだけ出す。
+  `(app)/layout.tsx`はこの外殻を呼ぶだけのサーバーコンポーネントのままで、`children`は
+  propsとして渡すので配下の`page.tsx`はサーバー側で描画される（#73の前提を崩さない）
+- **ドロワーは上部バーの下（`top:56px`）から出す。** 全高にすると☰／✕がドロワーの下に隠れ、
+  開いた後にボタンで閉じられなくなる
+- **⚙（設定）と📷（画像を送る）はスマホ専用の固定バーが持つ。** `HeaderUserMenu`は
+  PC・iPad向けのアバター＋ログアウトだけになった。バーのリンクは現在の画面と同じ行き先の
+  ものを出さない（`/settings`では⚙、`/dashboard/image-mail`では📷を描画しない）
+- **左端からの右スワイプでも開く。業界ニュースの週送りスワイプ（#53）と奪い合うため、
+  境界を`src/lib/nav-swipe.ts`の`EDGE_ZONE_PX`に1か所だけ置いている。** 左端24px以内から
+  始まったスワイプはドロワー、それ以外は週送りが受け取る。両方が反応すると「メニューが開き
+  ながら前週へ飛ぶ」ことになる。なおiOS Safariでは左端スワイプがブラウザの「戻る」と競合し
+  得るため、☰ボタンを確実な導線として必ず併置する
+- **画面が変わったときの後始末はクリック側で行う。** `usePathname()`の変化を`useEffect`で見て
+  `setOpen(false)`する書き方はeslintの`react-hooks/set-state-in-effect`で落ちるため、
+  ドロワー内の`<a>`クリックを拾って閉じている
 
 ## 画像を社用メールに送る（#64）
 
@@ -359,3 +387,118 @@ Next.jsのSuspense境界（`src/app/loading.tsx`）がサイドバーごと丸�
   書かない。** Turbopackのビルド用CSS最適化がコメントを字句レベルで終端してしまい、
   以降のコメント本文がCSSとして解釈されてビルド警告（`Unexpected token`）になる
   （`pnpm build:ci`で顕在化、`pnpm dev`では気づきにくい）
+
+## 記事のAI解析（ChatGPT / Codex CLI、#79）
+
+収集・登録した記事を、**サブPC上のCodex CLI**（`codex login`でChatGPTアカウント認証）に解析させる。
+Research DeskのサーバーからOpenAI APIは呼ばない（従量課金ではなくChatGPTの契約枠を使うため）。
+実行は定期バッチではなく、画面の「AI解析」「再解析」から積むオンデマンド方式。
+
+### なぜ専用のジョブキューを新設したか
+
+サブPCには汎用のジョブキューが無い。常駐しているのはissue-deckの
+`issue-deck-dispatch-poller.service`だけで、その`DispatchJob`は`repositoryFullName`・`issueNumber`が
+NOT NULLの必須列（`activeKey`も`owner/repo#番号`の形）のため、**外部アプリが任意のペイロードの
+ジョブを積む口が無い**。仕組み（systemd user unit + ポーラー + Bearer共有シークレット +
+claim/reportの2エンドポイント）だけを踏襲し、スキーマは新設した。
+
+### ジョブの流れ
+
+| 経路 | パス | 認証 |
+|---|---|---|
+| 画面 → サーバー | `POST /api/analysis/jobs` | Supabaseセッション（`getCurrentUser()`） |
+| 画面 → サーバー | `POST /api/analysis/review` | 同上 |
+| サブPC → サーバー | `POST /api/internal/analysis/claim` | `ANALYSIS_WORKER_SECRET` |
+| サブPC → サーバー | `POST /api/internal/analysis/report` | 同上 |
+
+**`ANALYSIS_WORKER_SECRET`はAIDE用の`INTERNAL_API_KEY`と別の値にしている。** AIDEは同一VPS内
+（`127.0.0.1`）からの呼び出しだが、ポーラーはサブPCからインターネット越しに来る別の主体で、
+片方を失効させてももう片方が止まらないようにするため。どちらも未設定なら素通りではなく503
+（`src/lib/internal-auth.ts`）。
+
+状態は`queued` / `running` / `completed` / `failed` / `auth_required`の5つ
+（`ArticleAnalysisJob.status`）。
+
+- **二重実行はDBで防ぐ。** `ArticleAnalysisJob.activeKey`は`QUEUED`・`RUNNING`の間だけ`articleId`が
+  入るUNIQUE列で、終了時に`null`へ戻す（MySQLのUNIQUEはNULLの重複を許す）。アプリ側で「実行中の
+  ジョブがあるか」を先に読んでから作る方式だと、PM2の複数プロセスから同時に押されたとき両方が
+  「無い」と読んで2本積む
+- **落ちたポーラーはリースで回収する。** `claim`時に`leaseExpiresAt`（15分）を入れ、期限切れの
+  `RUNNING`は次の`claim`で`QUEUED`へ戻す。戻ったジョブへ遅れて届いた結果は`canAcceptReport()`が
+  捨てる（次の実行の結果が正）
+- **結果は履歴として積む。** `ArticleAnalysis`は1ジョブ1行で、記事本体（`IndustryInformation`）の
+  要約・示唆は上書きしない。画面が使うのはAIの生成内容（`ArticleAnalysis`）と、人が確定した内容
+  （記事側の`business`・`importance`・`weeklyCandidate`＋`reviewedAt`）の両方で、区別して表示する
+- **対象外（`OUT_OF_SCOPE`）と判定された記事は週報候補から自動で外す**（`weeklyCandidate=false`）。
+  ただし人が一度でも確定している記事（`reviewedAt`が入っている）はその判断を優先し、AIの判定で
+  書き換えない（`shouldAutoExcludeFromWeekly()`）
+- `IndustryInformation.analysisStatus`・`analyzedAt`は最新ジョブの状態を写した**非正規化列**。
+  画面の絞り込みをPrismaの`where`で行うために置いてあるので、ジョブの状態を変える処理は
+  `src/lib/article-analysis.ts`の同一トランザクション内でここも更新すること
+
+### プロンプトと出力スキーマはサーバーが持つ
+
+`claim`の応答に**プロンプト本文とJSON Schemaを載せて**ポーラーへ渡す（`src/lib/analysis-prompt.ts`）。
+ポーラーは受け取った文面を`codex exec`へ流すだけの実行役なので、**解析の観点を変えてもサブPCへ
+スクリプトを配り直す必要がない。** 構造化出力の制約に合わせ、スキーマは全プロパティを`required`・
+`additionalProperties: false`にし、省略可能な項目は`["string","null"]`で表す。
+
+ポーラーが叩くコマンドは次の形（`scripts/codex-analysis-worker.mjs`）。
+
+```bash
+codex exec --sandbox read-only --skip-git-repo-check --ephemeral --color never \
+  -c tools.web_search=true --output-schema <schema.json> -o <result.json> -C <tmpdir> -
+```
+
+- **`codex exec`は`--search`を受け付けない**（`codex --help`には出るが`codex exec --help`には無い）。
+  関連情報の追加調査でWeb検索を使うには`-c tools.web_search=true`で設定を上書きする
+- **`--output-schema` + `-o <FILE>`で受け取る。** 標準出力をパースすると進捗表示が混ざったときに
+  壊れるため、最終応答だけをファイルへ書かせて読む
+- **プロンプトは引数ではなく標準入力から渡す**（`-`）。記事本文がプロセス一覧（`ps`）に出ないため
+
+### 認証方式の検知
+
+Codexの認証方式は`~/.codex/auth.json`の`auth_mode`で判定する（`codex login status`の文言に依存しない）。
+ChatGPTアカウント認証なら`auth_mode`が`chatgpt`・`OPENAI_API_KEY`が`null`。
+
+- ポーラーは子プロセスの環境から**`OPENAI_API_KEY`を必ず削除**してから`codex`を起動する
+- 報告された`codexAuthMode`が`chatgpt`以外なら、実行が成功しうる状態でも`auth_required`として
+  止める（`classifyFailure()`）。APIキー認証へ切り替わったまま従量課金で回り続けるのを防ぐため
+- 画面上部の実行環境ストリップ（`AnalysisStatusStrip`）に認証方式・最終応答・キュー件数を出す
+
+失敗の分類（ログイン切れ／利用枠到達／出力不正／実行失敗／時間切れ）は**サーバー側の
+`src/lib/analysis-job-rules.ts`**が行い、ポーラーは終了コードと標準エラーの末尾だけを送る。
+判定条件をサーバーへ寄せてあるため、単体テスト（`pnpm test`）で確かめられる。
+
+### サブPC側の設置
+
+ポーラー本体はこのリポジトリの`scripts/codex-analysis-worker.mjs`（追加依存なし・Nodeのみ）で、
+常駐用のsystemd user unitと設定例も同梱している。
+
+| ファイル | 置き場所 |
+|---|---|
+| `scripts/codex-analysis-worker.mjs` | サブPCのチェックアウト（`~/apps/research-desk`）からそのまま実行 |
+| `deploy/research-desk-analysis-poller.service` | `~/.config/systemd/user/` へコピー |
+| `deploy/analysis-worker.env.example` | `~/.config/research-desk/analysis-worker.env`（chmod 600）の記入例 |
+
+**サブPCの`~/.config/systemd/user/`は`guchi-apps/subpc`の管理対象外**（issue-deckの
+`src/lib/infra-config-repos.ts`に受け口が無く、issue-deck自身のpollerのunitも同じ扱い）。
+そのためunitはこのリポジトリで持ち、設置だけを手作業Issueで行う。**このリポジトリのPRを
+マージしただけでは解析は動き始めない**（画面上は「未解析」のまま止まり、既存機能には影響しない）。
+
+運用時の確認手順。
+
+```bash
+codex login status                     # `Logged in using ChatGPT` ならChatGPTアカウント認証
+jq -r .auth_mode ~/.codex/auth.json    # `chatgpt` であること（機械判定はこちらを使う）
+systemctl --user status research-desk-analysis-poller
+```
+
+### DBに繋がない単体テスト（`pnpm test`）
+
+`node --test 'src/**/*.test.ts'`。Node 24が型を剥がしてTypeScriptのまま実行するため、テスト用の
+依存もビルド手順も要らない（`tsconfig.json`の`allowImportingTsExtensions`は、テストが`./x.ts`と
+拡張子つきでimportするため）。**テストから読めるのはPrismaに触れないモジュールだけ**なので、
+ジョブの判定ルールは`src/lib/analysis-job-rules.ts`へ、プロンプトと結果検証は
+`src/lib/analysis-prompt.ts`へ分けてある。DBを伴う挙動（実際の重複投入・リース回収）は
+本番相当のDBが無いローカルでは確かめられないため、コードレビューでの突き合わせに留めている。

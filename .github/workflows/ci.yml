@@ -50,6 +50,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      # DBに繋がない純粋なロジックの単体テスト（node:test）。TypeScriptのままNodeが読む
+      # （Node 24の型剥がし）ため、追加の依存もビルド手順も要らない。
+      - name: Test
+        run: pnpm test
+
       - name: Build
         run: pnpm build:ci
         env:
