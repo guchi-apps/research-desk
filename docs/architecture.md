@@ -444,10 +444,19 @@ ChatGPTアカウント認証なら`auth_mode`が`chatgpt`・`OPENAI_API_KEY`が`
 
 ### サブPC側の設置
 
-ポーラー本体はこのリポジトリの`scripts/codex-analysis-worker.mjs`（追加依存なし・Nodeのみ）。
-常駐させるsystemd user unitとシークレットの配置は`guchi-apps/subpc`側の管轄なので、別Issueへ
-切り出してある。**このリポジトリのPRをマージしただけでは解析は動き始めない**（画面上は
-「未解析」のまま止まり、既存機能には影響しない）。
+ポーラー本体はこのリポジトリの`scripts/codex-analysis-worker.mjs`（追加依存なし・Nodeのみ）で、
+常駐用のsystemd user unitと設定例も同梱している。
+
+| ファイル | 置き場所 |
+|---|---|
+| `scripts/codex-analysis-worker.mjs` | サブPCのチェックアウト（`~/apps/research-desk`）からそのまま実行 |
+| `deploy/research-desk-analysis-poller.service` | `~/.config/systemd/user/` へコピー |
+| `deploy/analysis-worker.env.example` | `~/.config/research-desk/analysis-worker.env`（chmod 600）の記入例 |
+
+**サブPCの`~/.config/systemd/user/`は`guchi-apps/subpc`の管理対象外**（issue-deckの
+`src/lib/infra-config-repos.ts`に受け口が無く、issue-deck自身のpollerのunitも同じ扱い）。
+そのためunitはこのリポジトリで持ち、設置だけを手作業Issueで行う。**このリポジトリのPRを
+マージしただけでは解析は動き始めない**（画面上は「未解析」のまま止まり、既存機能には影響しない）。
 
 運用時の確認手順。
 
