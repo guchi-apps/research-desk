@@ -292,6 +292,34 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 ログアウト）は`src/components/HeaderUserMenu.tsx`に共通化し、あわせて設定画面への⚙ボタンを
 追加した。⚙ボタンは`globals.css`側で`display:none`が既定で、`@media(max-width:767px)`の
 中でだけ`display:grid`に切り替える（PC・iPadでは従来どおりアバター＋ログアウトのまま）。
+**この⚙ボタンは#80でスマホ用の固定バー（後述）へ移した。**
+
+## スマホのメニュー（#80）
+
+サイドバー（`src/app/(app)/layout.tsx`）は`globals.css`の`@media(max-width:767px)`で
+`display:none`にしていたため、**スマホでは画面上のどこからも「画像を送る」（#64）へ
+たどり着けなかった。** サイドバーに`📷　画像を送る`のリンクはあり、PC・iPadでは開けていた
+ぶん、Issueとしても気づきにくい形で残っていた。iPad（横1180px）は767pxを超えるのでPCと同じ
+配置になり、**スマホでだけ導線が消える**。
+
+- **サイドバーは非表示にせず、引き出し（ドロワー）へ切り替える。** `src/components/AppShell.tsx`
+  （クライアント）が`app-shell`の外殻を持ち、スマホ幅では`.sidebar`を`position:fixed`＋
+  `transform:translateX(-100%)`にして、`.app-shell.nav-open`が付いたときだけ出す。
+  `(app)/layout.tsx`はこの外殻を呼ぶだけのサーバーコンポーネントのままで、`children`は
+  propsとして渡すので配下の`page.tsx`はサーバー側で描画される（#73の前提を崩さない）
+- **ドロワーは上部バーの下（`top:56px`）から出す。** 全高にすると☰／✕がドロワーの下に隠れ、
+  開いた後にボタンで閉じられなくなる
+- **⚙（設定）と📷（画像を送る）はスマホ専用の固定バーが持つ。** `HeaderUserMenu`は
+  PC・iPad向けのアバター＋ログアウトだけになった。バーのリンクは現在の画面と同じ行き先の
+  ものを出さない（`/settings`では⚙、`/dashboard/image-mail`では📷を描画しない）
+- **左端からの右スワイプでも開く。業界ニュースの週送りスワイプ（#53）と奪い合うため、
+  境界を`src/lib/nav-swipe.ts`の`EDGE_ZONE_PX`に1か所だけ置いている。** 左端24px以内から
+  始まったスワイプはドロワー、それ以外は週送りが受け取る。両方が反応すると「メニューが開き
+  ながら前週へ飛ぶ」ことになる。なおiOS Safariでは左端スワイプがブラウザの「戻る」と競合し
+  得るため、☰ボタンを確実な導線として必ず併置する
+- **画面が変わったときの後始末はクリック側で行う。** `usePathname()`の変化を`useEffect`で見て
+  `setOpen(false)`する書き方はeslintの`react-hooks/set-state-in-effect`で落ちるため、
+  ドロワー内の`<a>`クリックを拾って閉じている
 
 ## 画像を社用メールに送る（#64）
 
