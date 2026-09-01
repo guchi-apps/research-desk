@@ -1,10 +1,10 @@
 /**
  * 記事AI解析（#79）のプロンプト・出力スキーマ・結果検証。
  *
- * 解析を実行するのはサブPC上のCodex CLI（ChatGPTアカウント認証）だが、**プロンプトと出力
+ * 解析を実行するのはVPS上のCodex CLI（ChatGPTアカウント認証）だが、**プロンプトと出力
  * スキーマはこのモジュールが唯一の正**で、`POST /api/internal/analysis/claim`の応答に載せて
  * ポーラーへ渡す。ポーラー（`scripts/codex-analysis-worker.mjs`）は受け取った文面を
- * `codex exec --output-schema` に流すだけの実行役にしてあり、観点を足すときにサブPC側の
+ * `codex exec --output-schema` に流すだけの実行役にしてあり、観点を足すときにポーラーの
  * スクリプトを配り直さずに済む。
  *
  * `OPENAI_API_KEY`を使う経路はこのファイルにも他のどこにも無い（Research Deskのサーバーから

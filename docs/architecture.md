@@ -388,19 +388,38 @@ Next.jsのSuspense境界（`src/app/loading.tsx`）がサイドバーごと丸�
   以降のコメント本文がCSSとして解釈されてビルド警告（`Unexpected token`）になる
   （`pnpm build:ci`で顕在化、`pnpm dev`では気づきにくい）
 
-## 記事のAI解析（ChatGPT / Codex CLI、#79）
+## 記事のAI解析（ChatGPT / Codex CLI、#79・#86）
 
-収集・登録した記事を、**サブPC上のCodex CLI**（`codex login`でChatGPTアカウント認証）に解析させる。
-Research DeskのサーバーからOpenAI APIは呼ばない（従量課金ではなくChatGPTの契約枠を使うため）。
-実行は定期バッチではなく、画面の「AI解析」「再解析」から積むオンデマンド方式。
+収集・登録した記事を、**アプリと同じVPS上のCodex CLI**（`codex login`でChatGPTアカウント認証）に
+解析させる。Research DeskのサーバーからOpenAI APIは呼ばない（従量課金ではなくChatGPTの契約枠を
+使うため）。実行は定期バッチではなく、画面の「AI解析」「再解析」から積むオンデマンド方式。
+
+### 実行役はVPSに置く（#86）
+
+#79ではサブPCの常駐ポーラーに実行させる前提だったが、**サブPCの`~/.config/systemd/user/`は
+Gitで管理できず**（issue-deckの`src/lib/infra-config-repos.ts`に受け口が無い）、動かすには実機での
+手作業が要り、リリースしても解析が始まらなかった。VPSにはaide-botが同じユーザーで導入した
+Codex CLIがある（guchi-apps/aide-bot#130）ので、ポーラーもそこへ移し、**PM2（`deploy/ecosystem.config.js`の
+`research-desk-analysis-worker`）に載せてデプロイで配る**。
+
+- ポーラーはアプリと同じ`.env`を自分で読む（`RESEARCH_DESK_URL`の既定は`http://127.0.0.1:<PORT>`）。
+  **PM2は`.env`を読まない**が、`env:`へ共有シークレットを書くと`~/.pm2/dump.pm2`へ残るため、
+  スクリプト側で読む
+- **共有シークレットが無くてもプロセスを終了させない。** `exit`するとPM2の再起動ループになる。
+  値は本番の`.env`へデプロイ時に入るので、入るまで待って次の再起動から動き出す
+- `deploy.yml`のPM2差し替えは**アプリとワーカーの両方の名前を挙げて`pm2 delete`する**。
+  片方だけだと古いプロセスが残って新しい配布物で起動し直されない
 
 ### なぜ専用のジョブキューを新設したか
 
-サブPCには汎用のジョブキューが無い。常駐しているのはissue-deckの
-`issue-deck-dispatch-poller.service`だけで、その`DispatchJob`は`repositoryFullName`・`issueNumber`が
-NOT NULLの必須列（`activeKey`も`owner/repo#番号`の形）のため、**外部アプリが任意のペイロードの
-ジョブを積む口が無い**。仕組み（systemd user unit + ポーラー + Bearer共有シークレット +
-claim/reportの2エンドポイント）だけを踏襲し、スキーマは新設した。
+解析は1件あたり数分かかり、HTTPリクエストの中では完結させられない。またNext.js本体は
+ヒープ128MB上限で常駐しており（`deploy/ecosystem.config.js`）、その中でCodexを抱えるのは無理がある。
+実行役を別プロセスに分け、状態・重複防止・リースをDBで持つ。
+
+なお汎用のジョブキューは他所にも無い。issue-deckの`DispatchJob`は`repositoryFullName`・`issueNumber`が
+NOT NULLの必須列（`activeKey`も`owner/repo#番号`の形）で、**外部アプリが任意のペイロードのジョブを
+積む口が無い**。仕組み（ポーラー + Bearer共有シークレット + claim/reportの2エンドポイント）だけを
+踏襲し、スキーマは新設した。
 
 ### ジョブの流れ
 
@@ -408,13 +427,13 @@ claim/reportの2エンドポイント）だけを踏襲し、スキーマは新�
 |---|---|---|
 | 画面 → サーバー | `POST /api/analysis/jobs` | Supabaseセッション（`getCurrentUser()`） |
 | 画面 → サーバー | `POST /api/analysis/review` | 同上 |
-| サブPC → サーバー | `POST /api/internal/analysis/claim` | `ANALYSIS_WORKER_SECRET` |
-| サブPC → サーバー | `POST /api/internal/analysis/report` | 同上 |
+| ポーラー → サーバー | `POST /api/internal/analysis/claim` | `ANALYSIS_WORKER_SECRET` |
+| ポーラー → サーバー | `POST /api/internal/analysis/report` | 同上 |
 
-**`ANALYSIS_WORKER_SECRET`はAIDE用の`INTERNAL_API_KEY`と別の値にしている。** AIDEは同一VPS内
-（`127.0.0.1`）からの呼び出しだが、ポーラーはサブPCからインターネット越しに来る別の主体で、
+**`ANALYSIS_WORKER_SECRET`はAIDE用の`INTERNAL_API_KEY`と別の値にしている。** #86でポーラーが
+VPSへ移り、AIDEと同じく`127.0.0.1`からの呼び出しになったが、呼び出し元は別の主体のままで、
 片方を失効させてももう片方が止まらないようにするため。どちらも未設定なら素通りではなく503
-（`src/lib/internal-auth.ts`）。
+（`src/lib/internal-auth.ts`）。未設定のあいだポーラーは待機したままで、ジョブは`queued`で残る。
 
 状態は`queued` / `running` / `completed` / `failed` / `auth_required`の5つ
 （`ArticleAnalysisJob.status`）。
@@ -439,8 +458,8 @@ claim/reportの2エンドポイント）だけを踏襲し、スキーマは新�
 ### プロンプトと出力スキーマはサーバーが持つ
 
 `claim`の応答に**プロンプト本文とJSON Schemaを載せて**ポーラーへ渡す（`src/lib/analysis-prompt.ts`）。
-ポーラーは受け取った文面を`codex exec`へ流すだけの実行役なので、**解析の観点を変えてもサブPCへ
-スクリプトを配り直す必要がない。** 構造化出力の制約に合わせ、スキーマは全プロパティを`required`・
+ポーラーは受け取った文面を`codex exec`へ流すだけの実行役なので、**解析の観点を変えても
+ポーラーのスクリプトを配り直す必要がない。** 構造化出力の制約に合わせ、スキーマは全プロパティを`required`・
 `additionalProperties: false`にし、省略可能な項目は`["string","null"]`で表す。
 
 ポーラーが叩くコマンドは次の形（`scripts/codex-analysis-worker.mjs`）。
@@ -470,29 +489,32 @@ ChatGPTアカウント認証なら`auth_mode`が`chatgpt`・`OPENAI_API_KEY`が`
 `src/lib/analysis-job-rules.ts`**が行い、ポーラーは終了コードと標準エラーの末尾だけを送る。
 判定条件をサーバーへ寄せてあるため、単体テスト（`pnpm test`）で確かめられる。
 
-### サブPC側の設置
+### VPS側の常駐（PM2）
 
-ポーラー本体はこのリポジトリの`scripts/codex-analysis-worker.mjs`（追加依存なし・Nodeのみ）で、
-常駐用のsystemd user unitと設定例も同梱している。
+ポーラー本体はこのリポジトリの`scripts/codex-analysis-worker.mjs`（追加依存なし・Nodeのみ）。
+`deploy.yml`が配布物へ含め、`deploy/ecosystem.config.js`の2つ目のアプリとしてPM2が常駐させる。
+**このリポジトリのリリースだけで解析が動き始める**（サブPCでの設置作業は要らない）。
 
-| ファイル | 置き場所 |
+| 名前 | 役割 |
 |---|---|
-| `scripts/codex-analysis-worker.mjs` | サブPCのチェックアウト（`~/apps/research-desk`）からそのまま実行 |
-| `deploy/research-desk-analysis-poller.service` | `~/.config/systemd/user/` へコピー |
-| `deploy/analysis-worker.env.example` | `~/.config/research-desk/analysis-worker.env`（chmod 600）の記入例 |
+| `research-desk` | Next.js本体（ポート3115） |
+| `research-desk-analysis-worker` | 解析ポーラー。`scripts/codex-analysis-worker.mjs` |
 
-**サブPCの`~/.config/systemd/user/`は`guchi-apps/subpc`の管理対象外**（issue-deckの
-`src/lib/infra-config-repos.ts`に受け口が無く、issue-deck自身のpollerのunitも同じ扱い）。
-そのためunitはこのリポジトリで持ち、設置だけを手作業Issueで行う。**このリポジトリのPRを
-マージしただけでは解析は動き始めない**（画面上は「未解析」のまま止まり、既存機能には影響しない）。
+前提はVPSにCodex CLIが入っていて、**PM2を動かしているユーザーで**ChatGPTアカウントに
+ログイン済みであること（aide-botが同じ形で使っている。guchi-apps/aide-bot#130）。
+`codex`はnpmのグローバル導入でnodeと同じbinディレクトリに居るため、PM2へは`pm2 start`した
+シェルの`PATH`を渡している。別の場所にある場合は`.env`の`CODEX_BIN`に絶対パスを書く。
 
-運用時の確認手順。
+運用時の確認手順（VPS上）。
 
 ```bash
-codex login status                     # `Logged in using ChatGPT` ならChatGPTアカウント認証
-jq -r .auth_mode ~/.codex/auth.json    # `chatgpt` であること（機械判定はこちらを使う）
-systemctl --user status research-desk-analysis-poller
+pm2 describe research-desk-analysis-worker      # status が online であること
+pm2 logs research-desk-analysis-worker --lines 30 --nostream
+jq -r .auth_mode ~/.codex/auth.json             # `chatgpt` であること（機械判定はこちら）
+codex login status                              # 人が読む用。`Logged in using ChatGPT`
 ```
+
+画面上部の実行環境ストリップにも、認証方式・最終応答・待ち件数が出る。
 
 ### DBに繋がない単体テスト（`pnpm test`）
 
