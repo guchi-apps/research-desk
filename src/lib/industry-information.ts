@@ -12,6 +12,8 @@ export const OLDEST_WEEK_OFFSET = -8;
 export type BusinessParam = "all" | "delivery" | "locker";
 export type SourceParam = "all" | "primary" | "related";
 export type ImportanceParam = "all" | "high" | "medium" | "reference";
+/** AI解析の絞り込み（#79）。`pending`は未解析・待ち・実行中、`attention`は失敗・認証待ち。 */
+export type AnalysisParam = "all" | "pending" | "analyzed" | "attention";
 
 export type IndustryInformationFilters = {
   weekOffset: number;
@@ -19,6 +21,9 @@ export type IndustryInformationFilters = {
   source: SourceParam;
   importance: ImportanceParam;
   keyword: string;
+  analysis: AnalysisParam;
+  /** 週報候補から外れた記事（AIが対象外と判定、または人が除外）を隠すかどうか。 */
+  hideExcluded: boolean;
 };
 
 export type WeekRange = { start: Date; end: Date };
@@ -113,7 +118,21 @@ function keywordCondition(keyword: string): Prisma.IndustryInformationWhereInput
   };
 }
 
-export type IndustryInformationListItem = Prisma.IndustryInformationGetPayload<Record<string, never>>;
+/** 記事と一緒に「最新の解析結果」「最新のジョブ」を1件ずつ引く（#79）。 */
+export const ARTICLE_ANALYSIS_INCLUDE = {
+  analyses: { orderBy: { createdAt: "desc" }, take: 1 },
+  analysisJobs: { orderBy: { queuedAt: "desc" }, take: 1 },
+} satisfies Prisma.IndustryInformationInclude;
+
+export type IndustryInformationListItem = Prisma.IndustryInformationGetPayload<{ include: typeof ARTICLE_ANALYSIS_INCLUDE }>;
+
+/** AI解析の絞り込み条件。未解析は`analysisStatus`がnullのため、`in`だけでは拾えない。 */
+function analysisCondition(analysis: AnalysisParam): Prisma.IndustryInformationWhereInput | null {
+  if (analysis === "pending") return { OR: [{ analysisStatus: null }, { analysisStatus: { in: ["QUEUED", "RUNNING"] } }] };
+  if (analysis === "analyzed") return { analysisStatus: "COMPLETED" };
+  if (analysis === "attention") return { analysisStatus: { in: ["FAILED", "AUTH_REQUIRED"] } };
+  return null;
+}
 
 /** 業界ニュース画面が表示する1週ぶんの業界情報を、絞り込み条件つきで取得する。 */
 export async function listIndustryInformation(filters: IndustryInformationFilters, now = new Date()): Promise<IndustryInformationListItem[]> {
@@ -122,12 +141,16 @@ export async function listIndustryInformation(filters: IndustryInformationFilter
   if (filters.source !== "all") conditions.push({ isPrimarySource: filters.source === "primary" });
   if (filters.importance !== "all") conditions.push({ importance: IMPORTANCE_BY_PARAM[filters.importance] });
   if (filters.keyword) conditions.push(keywordCondition(filters.keyword));
+  const analysis = analysisCondition(filters.analysis);
+  if (analysis) conditions.push(analysis);
+  if (filters.hideExcluded) conditions.push({ weeklyCandidate: true });
 
   // MySQL/MariaDBのENUMは定義順で並ぶ（`prisma/migrations/.../migration.sql`）。
   // `periodScope`はIN_SCOPE→補足、`importance`はHIGH→MEDIUM→REFERENCEの順で、
   // そのまま「補足は後ろ・重要度順」になる。
   return prisma.industryInformation.findMany({
     where: { AND: conditions },
+    include: ARTICLE_ANALYSIS_INCLUDE,
     orderBy: [{ periodScope: "asc" }, { importance: "asc" }, { publishedAt: "desc" }, { collectedAt: "desc" }],
   });
 }
@@ -161,7 +184,7 @@ export type RecencyLabel = "today" | "yesterday" | "earlier";
 
 /** トップ画面向けに、収集日時（`collectedAt`）が新しい順で業界情報を取得する。 */
 export async function listRecentIndustryInformation(): Promise<IndustryInformationListItem[]> {
-  return prisma.industryInformation.findMany({ orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
+  return prisma.industryInformation.findMany({ include: ARTICLE_ANALYSIS_INCLUDE, orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
 }
 
 /** `date`のJST日付が`now`から見て今日・昨日・それ以前のどれかを返す。 */

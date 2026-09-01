@@ -66,6 +66,33 @@ export function DashboardSkeleton() {
   );
 }
 
+// 記事詳細（#79）。本文側の解析パネルと右の確定パネルの2カラムに形を寄せる。
+export function ArticleDetailSkeleton() {
+  return (
+    <section className="content">
+      <HeaderSkeleton ctaWidth={110} />
+      <div className="detail-grid">
+        <div className="detail-main">
+          <div className="panel">
+            <Bar width={120} height={16} />
+            <Bar width="100%" height={78} />
+            <Bar width="92%" />
+            <Bar width="74%" />
+          </div>
+        </div>
+        <div className="detail-side">
+          <div className="side-panel">
+            <Bar width={100} height={16} />
+            <Bar width="100%" height={34} />
+            <Bar width="100%" height={34} />
+            <Bar width="100%" height={38} />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export function ImageMailSkeleton() {
   return (
     <section className="content">

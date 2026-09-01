@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import AnalysisStatusStrip from "@/components/AnalysisStatusStrip";
+import ArticleAnalysisBlock from "@/components/ArticleAnalysisBlock";
 import HeaderUserMenu from "@/components/HeaderUserMenu";
 import { getCurrentUser } from "@/lib/auth";
+import { getAnalysisOverview } from "@/lib/article-analysis";
 import SwipeWeekNav from "@/components/SwipeWeekNav";
-import { OLDEST_WEEK_OFFSET, formatDate, formatDateTime, formatMetrics, formatWeekLabel, getLastCollectedAt, getLatestCollectionRunId, getWeekRange, listIndustryInformation, parseWeekOffset, toMergedSources, toStringArray, type BusinessParam, type ImportanceParam, type IndustryInformationListItem, type SourceParam } from "@/lib/industry-information";
+import { OLDEST_WEEK_OFFSET, formatDate, formatDateTime, formatMetrics, formatWeekLabel, getLastCollectedAt, getLatestCollectionRunId, getWeekRange, listIndustryInformation, parseWeekOffset, toMergedSources, toStringArray, type AnalysisParam, type BusinessParam, type ImportanceParam, type IndustryInformationListItem, type SourceParam } from "@/lib/industry-information";
 
 // 週報の登録はAIDE経由の`POST /api/internal/weekly-report`だけで、この画面は表示専用。
 // 1週ぶんは全体6件・各事業3件までのため、絞り込み後の件数はそのまま描画してよい大きさに収まる。
@@ -31,7 +34,7 @@ function Card({ item, latestRunId }: { item: IndustryInformationListItem; latest
   const tags = toStringArray(item.tags);
   const status = cardStatus(item, latestRunId);
   const mergedSources = toMergedSources(item.mergedSources);
-  return <article className={`news-card ${supplement ? "supplement" : ""}`}>
+  return <article className={`news-card ${supplement ? "supplement" : ""} ${item.weeklyCandidate ? "" : "out-of-scope"}`}>
     <div className="news-head">
       <div><h3>{item.title}</h3><p className="meta">{formatDate(item.publishedAt ?? item.occurredAt ?? item.collectedAt)}　·　{item.sourceName}　·　{item.isPrimarySource ? "一次情報" : "関連記事"}</p></div>
       <div className="badge-col">
@@ -41,6 +44,7 @@ function Card({ item, latestRunId }: { item: IndustryInformationListItem; latest
     </div>
     <p className="summary">{item.summary ?? "要約は登録されていません。"}</p>
     <dl className="details"><div><dt>主な数値・事実</dt><dd>{formatMetrics(item.extractedMetrics) ?? "—"}</dd></div><div><dt>企画・設計への示唆</dt><dd>{item.implications ?? "—"}</dd></div><div><dt>キーワード</dt><dd>{keywords.length ? keywords.join("／") : "—"}</dd></div></dl>
+    <ArticleAnalysisBlock item={item} />
     <div className="news-foot"><div className="tags">{item.targetCompany && <b>{item.targetCompany}</b>}{item.targetProduct && <span>{item.targetProduct}</span>}{tags.map((tag) => <span key={tag}>{tag}</span>)}</div><a href={item.originalUrl} target="_blank" rel="noreferrer">元記事 ↗</a></div>
     {mergedSources.length > 0 && <details className="merge-info">
       <summary>更新履歴を見る</summary>
@@ -68,14 +72,18 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   const business: BusinessParam = params.business === "delivery" || params.business === "locker" ? params.business : "all";
   const source: SourceParam = params.source === "primary" || params.source === "related" ? params.source : "all";
   const importance: ImportanceParam = params.importance === "high" || params.importance === "medium" || params.importance === "reference" ? params.importance : "all";
+  const analysis: AnalysisParam = params.analysis === "pending" || params.analysis === "analyzed" || params.analysis === "attention" ? params.analysis : "all";
+  // 週報候補から外れた記事は既定で隠す。`?excluded=show`のときだけ混ぜて表示する（誤判定を
+  // 戻す操作をこの画面から行えるようにするため、完全に見えなくはしない）。
+  const hideExcluded = params.excluded !== "show";
   const weekOffset = parseWeekOffset(params.week);
   const keyword = typeof params.keyword === "string" ? params.keyword.trim() : "";
-  const [visible, lastCollectedAt, latestRunId] = await Promise.all([listIndustryInformation({ weekOffset, business, source, importance, keyword }), getLastCollectedAt(), getLatestCollectionRunId()]);
-  const query = (newWeek: number) => `/dashboard?week=${newWeek}&business=${business}&source=${source}&importance=${importance}${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ""}`;
+  const [visible, lastCollectedAt, latestRunId, overview] = await Promise.all([listIndustryInformation({ weekOffset, business, source, importance, keyword, analysis, hideExcluded }), getLastCollectedAt(), getLatestCollectionRunId(), getAnalysisOverview()]);
+  const query = (newWeek: number) => `/dashboard?week=${newWeek}&business=${business}&source=${source}&importance=${importance}&analysis=${analysis}${hideExcluded ? "" : "&excluded=show"}${keyword ? `&keyword=${encodeURIComponent(keyword)}` : ""}`;
   const prevHref = weekOffset > OLDEST_WEEK_OFFSET ? query(weekOffset - 1) : null;
   const nextHref = weekOffset < 0 ? query(weekOffset + 1) : null;
   const pointTitle = weekOffset === 0 ? "今週の要点" : "この週の要点";
   // 要点は登録データの先頭（重要度順）を事業ごとに1件ずつ拾う。文言は持たない。
   const keyPoints = (["DELIVERY", "LOCKER"] as const).map((key) => ({ business: key, item: visible.find((news) => news.business === key) })).filter((point): point is { business: Business; item: IndustryInformationListItem } => Boolean(point.item));
-  return <section className="content"><SwipeWeekNav prevHref={prevHref} nextHref={nextHref} /><header className="page-header"><div><p className="eyebrow">WEEKLY INDUSTRY BRIEF</p><h1>業界ニュース</h1></div><div className="top-actions"><Link className="cta back" href="/">⌂　新着記事に戻る</Link><HeaderUserMenu><span>{lastCollectedAt ? `最終更新 ${formatDateTime(lastCollectedAt)}` : "未登録"}</span></HeaderUserMenu></div></header><div className="week-nav"><a href={query(Math.max(OLDEST_WEEK_OFFSET, weekOffset - 1))}>‹</a><strong>{formatWeekLabel(getWeekRange(weekOffset))}</strong><a className={weekOffset === 0 ? "disabled" : ""} href={query(Math.min(0, weekOffset + 1))}>›</a></div>{keyPoints.length > 0 && <section className="key-points"><div className="section-heading"><h2>{pointTitle}</h2><span>{visible.length}件 · 重要度順</span></div><div className="key-grid">{keyPoints.map((point, index) => <div key={point.business}><small>{labels[point.business]}　{String(index + 1).padStart(2, "0")}</small><p>{point.item.title}</p></div>)}</div></section>}<form className="filters" method="get"><input type="hidden" name="week" value={weekOffset} /><label>事業区分<select name="business" defaultValue={business}><option value="all">すべて</option><option value="delivery">宅配事業</option><option value="locker">ロッカー事業</option></select></label><label>情報区分<select name="source" defaultValue={source}><option value="all">すべて</option><option value="primary">一次情報</option><option value="related">関連記事</option></select></label><label>重要度<select name="importance" defaultValue={importance}><option value="all">すべて</option><option value="high">高</option><option value="medium">中</option><option value="reference">参考</option></select></label><label className="keyword">企業・商品<input name="keyword" placeholder="キーワード" defaultValue={keyword} /></label><button type="submit">絞り込む</button></form><Section business="DELIVERY" items={visible.filter((item) => item.business === "DELIVERY")} latestRunId={latestRunId} /><Section business="LOCKER" items={visible.filter((item) => item.business === "LOCKER")} latestRunId={latestRunId} />{visible.length === 0 && <div className="no-results">条件に一致する情報はありません。期間や絞り込み条件を変えてお試しください。</div>}<p className="note">※ 要約は保存済みの調査結果を表示しています。転載記事は同一発表にまとめ、一次情報と関連記事を区別しています。</p></section>;
+  return <section className="content"><SwipeWeekNav prevHref={prevHref} nextHref={nextHref} /><header className="page-header"><div><p className="eyebrow">WEEKLY INDUSTRY BRIEF</p><h1>業界ニュース</h1></div><div className="top-actions"><Link className="cta back" href="/">⌂　新着記事に戻る</Link><HeaderUserMenu><span>{lastCollectedAt ? `最終更新 ${formatDateTime(lastCollectedAt)}` : "未登録"}</span></HeaderUserMenu></div></header><AnalysisStatusStrip overview={overview} /><div className="week-nav"><a href={query(Math.max(OLDEST_WEEK_OFFSET, weekOffset - 1))}>‹</a><strong>{formatWeekLabel(getWeekRange(weekOffset))}</strong><a className={weekOffset === 0 ? "disabled" : ""} href={query(Math.min(0, weekOffset + 1))}>›</a></div>{keyPoints.length > 0 && <section className="key-points"><div className="section-heading"><h2>{pointTitle}</h2><span>{visible.length}件 · 重要度順</span></div><div className="key-grid">{keyPoints.map((point, index) => <div key={point.business}><small>{labels[point.business]}　{String(index + 1).padStart(2, "0")}</small><p>{point.item.title}</p></div>)}</div></section>}<form className="filters" method="get"><input type="hidden" name="week" value={weekOffset} /><label>事業区分<select name="business" defaultValue={business}><option value="all">すべて</option><option value="delivery">宅配事業</option><option value="locker">ロッカー事業</option></select></label><label>情報区分<select name="source" defaultValue={source}><option value="all">すべて</option><option value="primary">一次情報</option><option value="related">関連記事</option></select></label><label>重要度<select name="importance" defaultValue={importance}><option value="all">すべて</option><option value="high">高</option><option value="medium">中</option><option value="reference">参考</option></select></label><label>AI解析<select name="analysis" defaultValue={analysis}><option value="all">すべて</option><option value="pending">未解析・待ち</option><option value="analyzed">解析済み</option><option value="attention">失敗・認証待ち</option></select></label><label className="toggle"><input type="checkbox" name="excluded" value="show" defaultChecked={!hideExcluded} /><span>対象外・除外も表示</span></label><label className="keyword">企業・商品<input name="keyword" placeholder="キーワード" defaultValue={keyword} /></label><button type="submit">絞り込む</button></form><Section business="DELIVERY" items={visible.filter((item) => item.business === "DELIVERY")} latestRunId={latestRunId} /><Section business="LOCKER" items={visible.filter((item) => item.business === "LOCKER")} latestRunId={latestRunId} />{visible.length === 0 && <div className="no-results">条件に一致する情報はありません。期間や絞り込み条件を変えてお試しください。</div>}<p className="note">※ 要約は保存済みの調査結果を表示しています。転載記事は同一発表にまとめ、一次情報と関連記事を区別しています。</p></section>;
 }
