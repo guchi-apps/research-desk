@@ -48,7 +48,9 @@ export function classifyFailure(signal: FailureSignal): FailureClassification {
   if (signal.timedOut) {
     return { status: "FAILED", failureKind: "TIMEOUT", message: truncateFailureMessage(`解析が時間内に終わりませんでした。 / ${tail}`) };
   }
-  return { status: "FAILED", failureKind: "EXECUTION_FAILED", message: truncateFailureMessage(`Codexの実行に失敗しました（終了コード ${signal.exitCode ?? "不明"}）。 / ${tail}`) };
+  // 画面は`FAILURE_KIND_LABELS`（「Codexの実行に失敗しました」）に続けてこの文を並べるため、
+  // ここで同じ文を繰り返さない（#90。同じ一文が二重に出ていた）。
+  return { status: "FAILED", failureKind: "EXECUTION_FAILED", message: truncateFailureMessage(`終了コード ${signal.exitCode ?? "不明"}。 / ${tail}`) };
 }
 
 /**

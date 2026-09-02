@@ -462,6 +462,21 @@ VPSへ移り、AIDEと同じく`127.0.0.1`からの呼び出しになったが�
 ポーラーのスクリプトを配り直す必要がない。** 構造化出力の制約に合わせ、スキーマは全プロパティを`required`・
 `additionalProperties: false`にし、省略可能な項目は`["string","null"]`で表す。
 
+- **キー名を決めないオブジェクト（`{ "type": "object", "additionalProperties": { … } }`）を
+  置いてはいけない**（#90）。OpenAIの構造化出力はそのプロパティを`properties`から落としたうえで
+  検証するため、**モデルを呼ぶ前に**`Invalid schema for response_format 'codex_output_schema': …
+  Extra required key '<そのプロパティ名>' supplied.`という400（`invalid_json_schema`）で落ちる。
+  エラー文が「`required`に余計なキーがある」と読めるので、`required`の並びを疑って時間を使いやすい。
+  項目名が可変のものは`{ "name": …, "value": … }`の**配列**で受け、保存前にオブジェクトへ畳む
+  （`metricsRecord()`）。`buildOutputSchema()`にキーを固定しないオブジェクトが混ざっていないことは
+  `src/lib/analysis-prompt.test.ts`が機械的に確かめている
+- スキーマを変えたら、実機のCodex CLIへ流して400にならないことを確かめる。1件だけなら次で済む
+
+  ```bash
+  env -u OPENAI_API_KEY codex exec --sandbox read-only --skip-git-repo-check --ephemeral \
+    --color never --output-schema <schema.json> -o <result.json> -C <tmpdir> - <<< 'テスト。スキーマどおりのJSONだけを返してください。'
+  ```
+
 ポーラーが叩くコマンドは次の形（`scripts/codex-analysis-worker.mjs`）。
 
 ```bash
