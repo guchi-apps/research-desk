@@ -21,7 +21,10 @@ export type AnalysisImportanceValue = "HIGH" | "MEDIUM" | "REFERENCE";
 export type AnalysisDuplicate = { title: string; url: string | null; reason: string };
 export type AnalysisRelatedFinding = { title: string; url: string; publishedOn: string | null; summary: string; reason: string; isPrimarySource: boolean };
 
-/** Codexが返すJSON。`buildOutputSchema()`のJSON Schemaと1対1で対応する。 */
+/**
+ * 検証を通した解析結果（保存する形）。`buildOutputSchema()`のJSON Schemaと1対1で対応するが、
+ * `metrics`だけは受け取った配列を項目名→値のオブジェクトへ畳んだあとの形にしてある（#90）。
+ */
 export type AnalysisPayload = {
   relevance: AnalysisRelevanceValue;
   confidence: number;
@@ -92,7 +95,7 @@ export function buildAnalysisPrompt(article: AnalysisTargetArticle, peers: Analy
     "- fullSummary: 本文が取得できている場合の全文要約（400〜600字）。本文が無い、または要約するに足る本文が取れない場合は null",
     "- announcedOn: 記事が伝えている発表日（YYYY-MM-DD）。分からなければ null",
     "- regions: 対象となる地域・国（例: 日本、首都圏、米国）",
-    "- metrics: 記事中の主要な数値。キーを項目名、値を単位つきの文字列にする（例: {\"発売時期\": \"2026年10月\", \"想定価格\": \"48,000円\"}）",
+    "- metrics: 記事中の主要な数値。1件ずつ name（項目名）と value（単位つきの文字列）に分けた配列にする（例: [{\"name\": \"発売時期\", \"value\": \"2026年10月\"}, {\"name\": \"想定価格\", \"value\": \"48,000円\"}]）。同じ項目名を2回出さないこと",
     "- implications: 商品企画・全体設計への示唆。当社が何を検討すべきかという形で書く",
     "- importance: 重要度。HIGH（高）／MEDIUM（中）／REFERENCE（参考）",
     "- duplicates: 下の「同じ週に登録済みの記事」のうち、実質的に同一の発表を伝えているもの。統合すべき理由を reason に書く。無ければ空配列",
@@ -121,6 +124,11 @@ export function buildAnalysisPrompt(article: AnalysisTargetArticle, peers: Analy
  *
  * 構造化出力は「全プロパティが required」「`additionalProperties: false`」を要求するため、
  * 省略可能な項目は`null`を許す型として表現する（`["string","null"]`）。
+ *
+ * **キー名を決めないオブジェクト（`additionalProperties`にスキーマを置く形）は使えない**（#90）。
+ * OpenAIの構造化出力はそのプロパティを`properties`から落としたうえで検証するため、
+ * `Extra required key '...' supplied`という分かりにくい400（`invalid_json_schema`）で、
+ * モデルを呼ぶ前に弾かれる。項目名が可変のものは`{ name, value }`の配列で表す。
  */
 export function buildOutputSchema(): Record<string, unknown> {
   const nullableString = { type: ["string", "null"] };
@@ -137,8 +145,11 @@ export function buildOutputSchema(): Record<string, unknown> {
       fullSummary: nullableString,
       announcedOn: nullableString,
       regions: { type: "array", items: { type: "string" } },
-      // 項目名が記事ごとに変わるため、キーを固定しないオブジェクトとして受ける。
-      metrics: { type: "object", additionalProperties: { type: "string" } },
+      // 項目名が記事ごとに変わるため、キーではなく値として受ける（保存時にオブジェクトへ畳む）。
+      metrics: {
+        type: "array",
+        items: { type: "object", additionalProperties: false, required: ["name", "value"], properties: { name: { type: "string" }, value: { type: "string" } } },
+      },
       implications: nullableString,
       importance: { type: "string", enum: ["HIGH", "MEDIUM", "REFERENCE"] },
       duplicates: {
@@ -179,13 +190,25 @@ function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim() !== "") : [];
 }
 
-/** `metrics`は項目が増える前提のため、文字列に落とせる値だけを残す。 */
+/**
+ * `metrics`を保存用のオブジェクト（項目名 → 値）へ畳む。
+ *
+ * スキーマ上は`{ name, value }`の配列だが（#90）、DBの列と画面の`formatMetrics()`は
+ * オブジェクトを前提にしているため、ここで畳んでから保存する。値は項目が増える前提なので、
+ * 文字列に落とせるものだけを残す。**オブジェクトで返ってきた場合も受け付ける**——
+ * スキーマを渡していてもモデルが旧来の形で返すことはあり、その1件を捨てる理由が無い。
+ */
 function metricsRecord(value: unknown): Record<string, string> {
-  if (!isRecord(value)) return {};
-  const entries = Object.entries(value)
-    .filter(([, item]) => item !== null && item !== undefined && typeof item !== "object")
-    .map(([key, item]) => [key, String(item)] as const);
-  return Object.fromEntries(entries);
+  const entries = Array.isArray(value)
+    ? value.filter(isRecord).map((item) => [item.name, item.value] as const).filter(([name]) => typeof name === "string" && name.trim() !== "")
+    : isRecord(value)
+      ? Object.entries(value)
+      : [];
+  return Object.fromEntries(
+    entries
+      .filter(([, item]) => item !== null && item !== undefined && typeof item !== "object")
+      .map(([name, item]) => [String(name), String(item)] as const),
+  );
 }
 
 function duplicates(value: unknown): AnalysisDuplicate[] {

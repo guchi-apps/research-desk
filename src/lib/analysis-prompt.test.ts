@@ -24,7 +24,7 @@ const valid = {
   fullSummary: null,
   announcedOn: "2026-08-28",
   regions: ["日本"],
-  metrics: { 発売時期: "2026年10月", 対応機種: 12 },
+  metrics: [{ name: "発売時期", value: "2026年10月" }, { name: "対応機種", value: 12 }],
   implications: "後付けで既設ストックを取りに行ける",
   importance: "HIGH",
   duplicates: [{ title: "同じ発表の転載記事", url: "https://example.com/news/2", reason: "発表主体と製品名が一致" }],
@@ -59,6 +59,22 @@ describe("buildOutputSchema", () => {
       assert.ok(schema.required.includes(key), key);
     }
   });
+
+  // キー名を決めないオブジェクトを1つでも置くと、OpenAIの構造化出力がモデルを呼ぶ前に
+  // 400（invalid_json_schema）で弾く（#90）。オブジェクトは必ずpropertiesを持たせる。
+  it("キー名を決めないオブジェクトを含めない（構造化出力が受け付けないため）", () => {
+    const openObjects: string[] = [];
+    const walk = (node: unknown, path: string) => {
+      if (Array.isArray(node)) return node.forEach((item, index) => walk(item, `${path}[${index}]`));
+      if (typeof node !== "object" || node === null) return;
+      const schema = node as Record<string, unknown>;
+      const isObjectType = schema.type === "object" || (Array.isArray(schema.type) && schema.type.includes("object"));
+      if (isObjectType && (schema.properties === undefined || schema.additionalProperties !== false)) openObjects.push(path);
+      for (const [key, child] of Object.entries(schema)) walk(child, `${path}.${key}`);
+    };
+    walk(buildOutputSchema(), "$");
+    assert.deepEqual(openObjects, []);
+  });
 });
 
 describe("parseAnalysisPayload", () => {
@@ -69,8 +85,21 @@ describe("parseAnalysisPayload", () => {
     assert.equal(result.value.relevance, "DELIVERY");
     assert.equal(result.value.duplicates.length, 1);
     assert.equal(result.value.relatedFindings[0].isPrimarySource, true);
-    // 数値で返ってきた項目も文字列へ寄せて保存する。
+    // name/valueの配列を項目名→値のオブジェクトへ畳み、数値で返ってきた値も文字列へ寄せる。
+    assert.equal(result.value.metrics.発売時期, "2026年10月");
     assert.equal(result.value.metrics.対応機種, "12");
+  });
+
+  it("metricsがオブジェクトで返ってきても読む（旧形式の応答で解析を捨てないため）", () => {
+    const result = parseAnalysisPayload({ ...valid, metrics: { 発売時期: "2026年10月", 対応機種: 12 } });
+    assert.equal(result.ok, true);
+    assert.equal(result.ok && result.value.metrics.対応機種, "12");
+  });
+
+  it("metricsが壊れていても、記事1件ぶんの解析ごと捨てない", () => {
+    const result = parseAnalysisPayload({ ...valid, metrics: [{ value: "名前がない" }, "配列の要素が文字列"] });
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.ok && result.value.metrics, {});
   });
 
   it("判定・信頼度・要約が欠けた応答は保存しない", () => {

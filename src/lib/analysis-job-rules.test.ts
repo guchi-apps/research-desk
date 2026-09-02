@@ -37,6 +37,8 @@ describe("classifyFailure", () => {
     assert.equal(result.status, "FAILED");
     assert.equal(result.failureKind, "EXECUTION_FAILED");
     assert.match(result.message, /127/);
+    // 画面はこの文の前に「Codexの実行に失敗しました」を出すため、同じ文を繰り返さない（#90）。
+    assert.ok(!result.message.includes("Codexの実行に失敗しました"), result.message);
   });
 
   it("長い実行ログは保存する長さまで切り詰める", () => {
