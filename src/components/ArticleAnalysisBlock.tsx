@@ -1,18 +1,21 @@
 import ArticleAnalysisActions from "@/components/ArticleAnalysisActions";
 import { ANALYSIS_STATUS_CLASS, ANALYSIS_STATUS_LABELS, FAILURE_KIND_LABELS, formatConfidence, RELEVANCE_LABELS } from "@/lib/analysis-display";
 import { formatDateTime, type IndustryInformationListItem } from "@/lib/industry-information";
+import { getTriageState, TRIAGE_CLASS, TRIAGE_LABELS } from "@/lib/triage";
 
 /**
  * 記事カードに付くAI解析ブロック（#79）。
  *
  * 状態（未解析／解析待ち／解析中／完了／失敗／認証待ち）と、完了していれば判定・信頼度・
  * 判定理由を出す。人が確定済みの記事は「人が確定」と表示し、AIの判定と区別できるようにする。
+ * 仕分けの状態（未判定／採用／不採用、#94）の札もここに出す。
  */
 export default function ArticleAnalysisBlock({ item }: { item: IndustryInformationListItem }) {
   const job = item.analysisJobs[0] ?? null;
   const analysis = item.analyses[0] ?? null;
   const status = item.analysisStatus;
   const reviewed = item.reviewedAt !== null;
+  const triage = getTriageState(item);
 
   return (
     <div className="ai-block">
@@ -30,8 +33,8 @@ export default function ArticleAnalysisBlock({ item }: { item: IndustryInformati
         {analysis && <span className="verdict">{RELEVANCE_LABELS[analysis.relevance]}</span>}
         {analysis && <span className="conf">信頼度 {formatConfidence(analysis.confidence)}</span>}
         {analysis && <span className={`by ${reviewed ? "human" : "ai"}`}>{reviewed ? "人が確定" : "AI判定"}</span>}
-        {!item.weeklyCandidate && <span className="chip outscope">週報から除外</span>}
-        <ArticleAnalysisActions articleId={item.id} status={status} weeklyCandidate={item.weeklyCandidate} />
+        <span className={`chip ${TRIAGE_CLASS[triage]}`}>{TRIAGE_LABELS[triage]}</span>
+        <ArticleAnalysisActions articleId={item.id} status={status} triage={triage} />
       </div>
       {analysis && <p className="ai-reason">判定理由: {analysis.reason}</p>}
       {job && (status === "FAILED" || status === "AUTH_REQUIRED") && (

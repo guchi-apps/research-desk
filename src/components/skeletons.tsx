@@ -40,6 +40,8 @@ export function HomeSkeleton() {
   return (
     <section className="content">
       <HeaderSkeleton />
+      <Bar width="100%" height={42} className="sk-weeknav" />
+      <Bar width="100%" height={44} className="sk-weeknav" />
       <NewsCardSkeleton />
       <NewsCardSkeleton />
       <NewsCardSkeleton lines={1} />

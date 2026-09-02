@@ -1,19 +1,65 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderUserMenu from "@/components/HeaderUserMenu";
+import TriageActions from "@/components/TriageActions";
+import TriageInbox from "@/components/TriageInbox";
+import { ANALYSIS_STATUS_CLASS, ANALYSIS_STATUS_LABELS, formatConfidence, RELEVANCE_LABELS } from "@/lib/analysis-display";
 import { getCurrentUser } from "@/lib/auth";
-import { formatDate, getRecencyLabel, listRecentIndustryInformation, toStringArray, type IndustryInformationListItem, type RecencyLabel } from "@/lib/industry-information";
+import { countTriage, formatDate, getRecencyLabel, listRecentIndustryInformation, toStringArray, type IndustryInformationListItem, type RecencyLabel } from "@/lib/industry-information";
+import { getTriageState, parseTriageParam, TRIAGE_CLASS, TRIAGE_LABELS, TRIAGE_PARAMS, type TriageParam } from "@/lib/triage";
 
-// 新着記事はAIDE経由の`POST /api/internal/weekly-report`等で登録され次第この画面に出る。
-// 登録直後に開いても古い内容を返さないよう、毎リクエストでDBを読む。
+// 新着記事は日次収集・AIDE経由の週報登録で登録され次第この画面に出る。
+// 仕分け（採用／不採用）を押した直後に古い内容を返さないよう、毎リクエストでDBを読む。
 export const dynamic = "force-dynamic";
 
 const labels = { DELIVERY: "宅配事業", LOCKER: "ロッカー事業" } as const;
 const importanceLabels = { HIGH: "高", MEDIUM: "中", REFERENCE: "参考" } as const;
 const dayHeadings: Record<RecencyLabel, string> = { today: "今日", yesterday: "昨日", earlier: "それ以前" };
+const tabLabels: Record<TriageParam, string> = { pending: "未判定", adopted: "採用", rejected: "不採用", all: "すべて" };
+const tabHints: Record<TriageParam, string> = {
+  pending: "未判定の記事は業界ニュース画面にも出ます。不採用にすると隠れ、「不採用」タブから戻せます。",
+  adopted: "採用した記事です。押し直せば不採用に変えられます。",
+  rejected: "不採用にした記事です。削除はしていないので、「採用」を押せば戻せます。",
+  all: "収集したすべての記事です。仕分けの状態は各カードの札で分かります。",
+};
+const emptyMessages: Record<TriageParam, string> = {
+  pending: "未判定の記事はありません。収集・週報登録が行われるとここに表示されます。",
+  adopted: "採用した記事はまだありません。",
+  rejected: "不採用にした記事はありません。",
+  all: "記事はまだありません。収集・週報登録が行われるとここに表示されます。",
+};
 
+/**
+ * 新着記事のカード（#94で仕分け用に変更）。左のチェックはまとめて仕分けるバー（`TriageInbox`）が
+ * 数え、右下のボタンは1件ずつ採用／不採用にする。AIが対象外と判定した記事は破線のカードで
+ * 判定理由まで出し、人はその判定を確認するだけで済むようにする。
+ */
 function RecentCard({ item }: { item: IndustryInformationListItem }) {
   const tags = toStringArray(item.tags);
-  return <article className="news-card"><div className="biz"><i className={item.business === "LOCKER" ? "orange" : ""} />{labels[item.business]}</div><div className="news-head"><div><h3>{item.title}</h3><p className="meta">{formatDate(item.publishedAt ?? item.occurredAt ?? item.collectedAt)}　·　{item.sourceName}　·　{item.isPrimarySource ? "一次情報" : "関連記事"}</p></div><span className={`badge ${item.importance === "HIGH" ? "high" : ""}`}>重要度 {importanceLabels[item.importance]}</span></div><p className="summary">{item.summary ?? "要約は登録されていません。"}</p><div className="news-foot"><div className="tags">{item.targetCompany && <b>{item.targetCompany}</b>}{tags.map((tag) => <span key={tag}>{tag}</span>)}</div><a href={item.originalUrl} target="_blank" rel="noreferrer">元記事 ↗</a></div></article>;
+  const state = getTriageState(item);
+  const analysis = item.analyses[0] ?? null;
+  const status = item.analysisStatus;
+  const hidden = state === "rejected" || state === "ai_rejected";
+  return <article className={`news-card triage ${hidden ? "out-of-scope" : ""}`}>
+    <label className="pick"><input type="checkbox" name="ids" value={item.id} aria-label={`「${item.title}」を選択`} /></label>
+    <div className="card-body">
+      <div className="biz"><i className={item.business === "LOCKER" ? "orange" : ""} />{labels[item.business]}</div>
+      <div className="news-head"><div><h3>{item.title}</h3><p className="meta">{formatDate(item.publishedAt ?? item.occurredAt ?? item.collectedAt)}　·　{item.sourceName}　·　{item.isPrimarySource ? "一次情報" : "関連記事"}</p></div><span className={`badge ${item.importance === "HIGH" ? "high" : ""}`}>重要度 {importanceLabels[item.importance]}</span></div>
+      <p className="summary">{item.summary ?? "要約は登録されていません。"}</p>
+      <div className="ai-block">
+        <div className="ai-row">
+          <span className="ai-label">AI解析</span>
+          {status === null ? <span className="chip queued">未解析</span> : <span className={`chip ${ANALYSIS_STATUS_CLASS[status]}`}><i className="dot" />{ANALYSIS_STATUS_LABELS[status]}</span>}
+          {analysis && (analysis.relevance === "OUT_OF_SCOPE" ? <span className="chip outscope">対象外</span> : <span className="verdict">{RELEVANCE_LABELS[analysis.relevance]}</span>)}
+          {analysis && <span className="conf">信頼度 {formatConfidence(analysis.confidence)}</span>}
+          {state !== "pending" && <span className={`chip ${TRIAGE_CLASS[state]}`}>{TRIAGE_LABELS[state]}</span>}
+          <TriageActions articleId={item.id} state={state} />
+        </div>
+        {analysis?.relevance === "OUT_OF_SCOPE" && <p className="ai-reason">判定理由: {analysis.noiseReason ?? analysis.reason}</p>}
+      </div>
+      <div className="news-foot"><div className="tags">{item.targetCompany && <b>{item.targetCompany}</b>}{tags.map((tag) => <span key={tag}>{tag}</span>)}</div><a href={item.originalUrl} target="_blank" rel="noreferrer">元記事 ↗</a></div>
+    </div>
+  </article>;
 }
 
 function DayGroup({ label, items }: { label: RecencyLabel; items: IndustryInformationListItem[] }) {
@@ -21,12 +67,21 @@ function DayGroup({ label, items }: { label: RecencyLabel; items: IndustryInform
   return <div className="day-group"><div className="day-heading"><h2>{dayHeadings[label]}</h2><span className="pill">{formatDate(items[0].collectedAt)}</span><span className="count">{items.length}件</span></div><div className="news-list">{items.map((item) => <RecentCard key={item.id} item={item} />)}</div></div>;
 }
 
-export default async function Home() {
+export default async function Home({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await getCurrentUser();
   if (user.status === "unavailable") return <section className="content"><div className="empty-state"><p>認証状態を確認できませんでした。しばらくしてから再読み込みしてください。</p></div></section>;
   if (user.status === "unauthenticated") redirect("/login");
-  const recent = await listRecentIndustryInformation();
+  const triage = parseTriageParam((await searchParams).triage);
+  const [recent, counts] = await Promise.all([listRecentIndustryInformation(triage), countTriage()]);
   const groups: Record<RecencyLabel, IndustryInformationListItem[]> = { today: [], yesterday: [], earlier: [] };
   for (const item of recent) groups[getRecencyLabel(item.collectedAt)].push(item);
-  return <section className="content"><header className="page-header"><div><p className="eyebrow">LATEST UPDATES</p><h1>新着記事</h1><p className="lead">直近で反映された記事を新しい順に表示しています。事業ごとの絞り込みや週送りは業界ニュース画面で行えます。</p></div><div className="top-actions"><a className="cta" href="/dashboard">業界ニュースを見る　▦</a><HeaderUserMenu /></div></header>{recent.length === 0 ? <div className="no-results">新着記事はまだありません。収集・週報登録が行われるとここに表示されます。</div> : <>{(["today", "yesterday", "earlier"] as const).map((label) => <DayGroup key={label} label={label} items={groups[label]} />)}<p className="bottom-link"><a href="/dashboard">すべての業界ニュースを見る　▦</a></p></>}</section>;
+  return <section className="content triage-page">
+    <header className="page-header"><div><p className="eyebrow">LATEST UPDATES</p><h1>新着記事</h1><p className="lead">直近で収集した記事を新しい順に表示しています。関係ない記事は「不採用」で隠し、週報に載せたい記事は「採用」にします。</p></div><div className="top-actions"><a className="cta" href="/dashboard">業界ニュースを見る　▦</a><HeaderUserMenu /></div></header>
+    <nav className="triage-tabs" aria-label="仕分けの状態">{TRIAGE_PARAMS.map((param) => <Link key={param} className={param === triage ? "active" : ""} href={param === "pending" ? "/" : `/?triage=${param}`} aria-current={param === triage ? "page" : undefined}>{tabLabels[param]} <b>{counts[param]}</b></Link>)}</nav>
+    <p className="triage-hint">{tabHints[triage]}</p>
+    {recent.length === 0 ? <div className="no-results">{emptyMessages[triage]}</div> : <TriageInbox total={recent.length}>
+      {(["today", "yesterday", "earlier"] as const).map((label) => <DayGroup key={label} label={label} items={groups[label]} />)}
+      <p className="bottom-link"><a href="/dashboard">すべての業界ニュースを見る　▦</a></p>
+    </TriageInbox>}
+  </section>;
 }

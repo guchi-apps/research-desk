@@ -7,6 +7,7 @@ import { ANALYSIS_STATUS_CLASS, ANALYSIS_STATUS_LABELS, FAILURE_KIND_LABELS, for
 import { getAnalysisOverview, getArticleDetail } from "@/lib/article-analysis";
 import { getCurrentUser } from "@/lib/auth";
 import { formatDate, formatDateTime, formatMetrics, toStringArray } from "@/lib/industry-information";
+import { getTriageState } from "@/lib/triage";
 
 // 解析の状態は押した直後に変わるため、毎リクエストでDBを読む。
 export const dynamic = "force-dynamic";
@@ -64,7 +65,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
             <span className={`chip ${status ? ANALYSIS_STATUS_CLASS[status] : "queued"}`}>{status ? ANALYSIS_STATUS_LABELS[status] : "未解析"}</span>
           </div>
 
-          <ArticleAnalysisActions articleId={article.id} status={status} weeklyCandidate={article.weeklyCandidate} showDetailLink={false} />
+          <ArticleAnalysisActions articleId={article.id} status={status} triage={getTriageState(article)} showDetailLink={false} />
 
           {job && (status === "FAILED" || status === "AUTH_REQUIRED") && <p className={`ai-hint ${status === "FAILED" ? "fail" : ""}`}>
             {job.failureKind ? FAILURE_KIND_LABELS[job.failureKind] : "解析に失敗しました"}
@@ -152,7 +153,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
             <p><b>人が確定した内容</b></p>
             事業区分　{RELEVANCE_LABELS[currentRelevance]}{analysis && analysis.relevance !== currentRelevance ? `（AIの判定は ${RELEVANCE_LABELS[analysis.relevance]}）` : ""}<br />
             重要度　{IMPORTANCE_LABELS[article.importance]}{analysis && analysis.importance !== article.importance ? `（AIの判定は ${IMPORTANCE_LABELS[analysis.importance]}）` : ""}<br />
-            週報候補　{article.weeklyCandidate ? "含める" : "含めない"}<br />
+            仕分け　{article.weeklyCandidate ? "採用（週報の候補に含める）" : "不採用"}<br />
             {article.reviewedBy ?? "不明"} · {article.reviewedAt ? formatDateTime(article.reviewedAt) : ""}
           </div>}
         </section>
