@@ -2,16 +2,19 @@ import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { getWeekRange, weekCondition, toMergedSources, type MergedSource, type WeekRange } from "@/lib/industry-information";
+import { decideWeeklyCap, IMPORTANCE_RANK, type ImportanceValue, type PriorityFields } from "@/lib/triage";
 
-export const COLLECTION_LIMIT = 10;
-const BUSINESS_WEEKLY_LIMIT = 5;
+// 収集の上限（#94で「1回10件・事業ごと週5件」から広げた）。無関係な記事は新着記事画面の仕分けで
+// 人が不採用にする前提なので、取り込みは多めにし、上限の枠には不採用の記事を数えない
+// （`decideWeeklyCap()`）。AIDE経由の週報登録の入力上限（1回10件・各事業5件）はAIDE側との
+// 契約なので変えていない（`src/app/api/internal/weekly-report/route.ts`）。
+export const COLLECTION_LIMIT = 30;
+const BUSINESS_WEEKLY_LIMIT = 15;
 const DAY_MS = 24 * 60 * 60 * 1000;
 type Business = "DELIVERY" | "LOCKER";
 type InformationType = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "QUALITY_SAFETY" | "OVERSEAS_CASE" | "OTHER";
 type Candidate = { business: Business; title: string; url: string; sourceName: string; publisher: string | null; publishedAt: Date; isSupplemental: boolean; informationType: InformationType; importance: "HIGH" | "MEDIUM" | "REFERENCE"; keywords: string[]; tags: string[] };
 type InformationTypeValue = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "RECRUITMENT_PARTNERSHIP" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "CONSTRUCTION" | "QUALITY_SAFETY" | "PATENT" | "OVERSEAS_CASE" | "OTHER";
-type ImportanceValue = "HIGH" | "MEDIUM" | "REFERENCE";
-const IMPORTANCE_RANK: Record<ImportanceValue, number> = { HIGH: 3, MEDIUM: 2, REFERENCE: 1 };
 
 export type CollectionResult = { runId: string; status: "SUCCEEDED" | "PARTIAL" | "FAILED"; targetFrom: string; targetTo: string; supplementalFrom: string; fetchedCount: number; selectedCount: number; insertedCount: number; duplicateCount: number; mergedCount: number; excludedCount: number; failedCount: number; errors: string[] };
 
@@ -202,13 +205,16 @@ type WeekPeer = {
   content: string | null;
   mergedSources: Prisma.JsonValue | null;
   normalizedUrl: string;
+  // 仕分けの状態（#94）。週あたり上限に数えるか・置き換えてよいかの判定に使う。
+  weeklyCandidate: boolean;
+  reviewedAt: Date | null;
 };
 
 const WEEK_PEER_SELECT = {
   id: true, business: true, informationType: true, title: true, publisher: true, sourceName: true,
   targetCompany: true, targetProduct: true, occurredAt: true, publishedAt: true, importance: true,
   isPrimarySource: true, extractedMetrics: true, summary: true, implications: true, content: true,
-  mergedSources: true, normalizedUrl: true,
+  mergedSources: true, normalizedUrl: true, weeklyCandidate: true, reviewedAt: true,
 } satisfies Prisma.IndustryInformationSelect;
 
 /** 既存記事へ統合・上書き更新する。完全に既知の内容（統合元URLが既出かつ変更なし）なら
@@ -266,15 +272,6 @@ async function mergeIntoExisting(existing: WeekPeer, article: EventArticleInput,
   return "merged";
 }
 
-type PriorityFields = { importance: ImportanceValue; isPrimarySource: boolean; publishedAt: Date | null };
-
-/** 週あたり上限の置換/除外で使う優先順位。重要度→一次情報かどうか→公開日時（新しい方）の順。 */
-function isHigherPriority(a: PriorityFields, b: PriorityFields): boolean {
-  if (IMPORTANCE_RANK[a.importance] !== IMPORTANCE_RANK[b.importance]) return IMPORTANCE_RANK[a.importance] > IMPORTANCE_RANK[b.importance];
-  if (a.isPrimarySource !== b.isPrimarySource) return a.isPrimarySource;
-  return (a.publishedAt?.getTime() ?? 0) > (b.publishedAt?.getTime() ?? 0);
-}
-
 function toCreateData(article: EventArticleInput, runId: string, normalizedUrl: string): Prisma.IndustryInformationUncheckedCreateInput {
   return {
     business: article.business,
@@ -307,8 +304,11 @@ function toCreateData(article: EventArticleInput, runId: string, normalizedUrl: 
  * 業界情報1件を取り込む（#43）。AIDE経由の週報登録・自動収集の両方がこれ1本を呼ぶ。
  * 1. 完全URL一致は従来どおり冪等（`duplicate`、何も更新しない）
  * 2. 同じ週・同じ事業のレコードから同一イベントを判定し、マッチすれば新規行を作らず統合更新する
- * 3. マッチしなければ新規イベントとして扱い、週あたり上限（事業ごと5件）を適用する
- *    （優先度が上回れば最弱の既存記事を削除して置換、そうでなければ新規候補を除外）
+ * 3. マッチしなければ新規イベントとして扱い、週あたり上限（事業ごと`BUSINESS_WEEKLY_LIMIT`件）を
+ *    適用する（優先度が上回れば最弱の既存記事を削除して置換、そうでなければ新規候補を除外）。
+ *    上限には不採用の記事を数えず、人が採用した記事は置換で削除しない（#94。`decideWeeklyCap()`）。
+ *    同一イベント判定（2.）は不採用の記事も含めて行うため、不採用にした発表の転載は不採用の
+ *    記事へ統合されたまま隠れ、新しい未判定の記事として出直してこない
  */
 export async function upsertIndustryInformationEvent(article: EventArticleInput, runId: string): Promise<UpsertResult> {
   const normalizedUrl = normalizeUrl(article.url);
@@ -335,16 +335,15 @@ export async function upsertIndustryInformationEvent(article: EventArticleInput,
   }
 
   let excluded: ExcludedArticle | undefined;
-  if (weekPeers.length >= BUSINESS_WEEKLY_LIMIT) {
-    const weakest = weekPeers.reduce((min, item) => (isHigherPriority(item, min) ? min : item));
-    const candidatePriority: PriorityFields = { importance: article.importance ?? "REFERENCE", isPrimarySource: article.isPrimarySource ?? false, publishedAt: article.publishedAt ?? null };
-    if (isHigherPriority(candidatePriority, weakest)) {
-      excluded = { business: article.business, title: weakest.title, url: weakest.normalizedUrl, reason: "REPLACED", replacedArticleId: weakest.id, replacedArticleTitle: weakest.title, occurredAt: new Date().toISOString() };
-      await prisma.industryInformation.delete({ where: { id: weakest.id } });
-    } else {
-      excluded = { business: article.business, title: article.title, url: normalizedUrl, reason: "CAPACITY_EXCEEDED", occurredAt: new Date().toISOString() };
-      return { outcome: "excluded", excluded };
-    }
+  const candidatePriority: PriorityFields = { importance: article.importance ?? "REFERENCE", isPrimarySource: article.isPrimarySource ?? false, publishedAt: article.publishedAt ?? null };
+  const decision = decideWeeklyCap(weekPeers, candidatePriority, BUSINESS_WEEKLY_LIMIT);
+  if (decision.action === "replace") {
+    const weakest = decision.target;
+    excluded = { business: article.business, title: weakest.title, url: weakest.normalizedUrl, reason: "REPLACED", replacedArticleId: weakest.id, replacedArticleTitle: weakest.title, occurredAt: new Date().toISOString() };
+    await prisma.industryInformation.delete({ where: { id: weakest.id } });
+  } else if (decision.action === "exclude") {
+    excluded = { business: article.business, title: article.title, url: normalizedUrl, reason: "CAPACITY_EXCEEDED", occurredAt: new Date().toISOString() };
+    return { outcome: "excluded", excluded };
   }
 
   try {

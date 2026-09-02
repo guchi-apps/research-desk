@@ -47,6 +47,12 @@ pnpm test
 pnpm build:ci
 ```
 
+**worktreeの起動プロンプトに「依存インストール済み」とあっても`node_modules`が無いことがある**（#94）。
+`pnpm lint`が`eslint: not found`で落ちたら、新しい依存の追加ではないので確認を取らずに
+`pnpm install --frozen-lockfile --prefer-offline`を実行してよい（`postinstall`の`prisma generate`も
+一緒に走るため、その後の`typecheck`も通る）。`pnpm test`だけはNode標準の`node --test`なので
+`node_modules`が無くても通り、そこで気付きにくい。
+
 **`pnpm test`は`node --test 'src/**/*.test.ts'`で、DBに繋がない純粋なロジックだけを対象にする**
 （#79）。Node 24が型を剥がしてTypeScriptのまま実行するため、テスト用の依存もビルド手順も要らない。
 テストから読めるのは**Prismaをimportしないモジュールだけ**なので、テストしたいロジックは
