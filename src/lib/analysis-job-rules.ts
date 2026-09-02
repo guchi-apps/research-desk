@@ -4,7 +4,7 @@
  * DB・Prismaに触れない純粋な関数だけを置き、`node --test`で直接読めるようにしてある
  * （`src/lib/article-analysis.ts`はPrismaを読み込むため、テストから直接importできない）。
  * 「認証切れなのか」「利用枠なのか」「重複ジョブなのか」といった判断はここが唯一の正で、
- * サブPCのポーラーは判定条件を持たない。
+ * ポーラー（VPS常駐）は判定条件を持たない。
  */
 
 export type JobStatusValue = "QUEUED" | "RUNNING" | "COMPLETED" | "FAILED" | "AUTH_REQUIRED";
@@ -37,10 +37,10 @@ export function classifyFailure(signal: FailureSignal): FailureClassification {
   const tail = signal.stderrTail ?? "";
 
   if (signal.codexAuthMode && signal.codexAuthMode !== "chatgpt") {
-    return { status: "AUTH_REQUIRED", failureKind: "AUTH_REQUIRED", message: `CodexがChatGPTアカウント以外の認証方式（${signal.codexAuthMode}）で動いています。サブPCで codex login を実行し、ChatGPTアカウントでログインし直してください。` };
+    return { status: "AUTH_REQUIRED", failureKind: "AUTH_REQUIRED", message: `CodexがChatGPTアカウント以外の認証方式（${signal.codexAuthMode}）で動いています。VPSで codex login を実行し、ChatGPTアカウントでログインし直してください。` };
   }
   if (AUTH_PATTERNS.some((pattern) => pattern.test(tail))) {
-    return { status: "AUTH_REQUIRED", failureKind: "AUTH_REQUIRED", message: truncateFailureMessage(`CodexがChatGPTアカウントでログインできていません。サブPCで codex login status を確認してください。 / ${tail}`) };
+    return { status: "AUTH_REQUIRED", failureKind: "AUTH_REQUIRED", message: truncateFailureMessage(`CodexがChatGPTアカウントでログインできていません。VPSで codex login status を確認してください。 / ${tail}`) };
   }
   if (RATE_LIMIT_PATTERNS.some((pattern) => pattern.test(tail))) {
     return { status: "FAILED", failureKind: "RATE_LIMITED", message: truncateFailureMessage(`ChatGPTの利用枠に達したため中断しました。枠が回復してから再実行してください。 / ${tail}`) };
@@ -72,7 +72,7 @@ export function canAcceptReport(status: JobStatusValue): boolean {
   return status === "RUNNING";
 }
 
-/** リース切れ（ポーラーが落ちた・サブPCが再起動した）かどうか。 */
+/** リース切れ（ポーラーが落ちた・VPSが再起動した）かどうか。 */
 export function isLeaseExpired(leaseExpiresAt: Date | null, now: Date): boolean {
   return leaseExpiresAt !== null && leaseExpiresAt.getTime() < now.getTime();
 }

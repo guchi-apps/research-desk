@@ -148,7 +148,7 @@ model IndustryInformation {
 }
 
 // --- 記事のAI解析（#79） ---------------------------------------------------------------
-// 解析役はサブPC上のCodex CLI（ChatGPTアカウント認証）。Research Deskはジョブを積むだけで、
+// 解析役はVPS上のCodex CLI（ChatGPTアカウント認証）。Research Deskはジョブを積むだけで、
 // 常駐ポーラーが`POST /api/internal/analysis/claim`で取得し、`.../report`で結果を返す。
 
 enum AnalysisJobStatus {

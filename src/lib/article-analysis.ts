@@ -10,7 +10,7 @@ export type { FailureKindValue, FailureSignal, JobStatusValue };
 /**
  * 記事AI解析のジョブ管理（#79）。
  *
- * 画面がジョブを積み、サブPCの常駐ポーラーが`claim`で取得して`report`で返す。実行役は
+ * 画面がジョブを積み、VPS上の常駐ポーラーが`claim`で取得して`report`で返す。実行役は
  * ChatGPTアカウントでログインしたCodex CLIで、Research Deskのサーバーは外部AIへ一切接続しない。
  */
 
@@ -58,7 +58,7 @@ export type ClaimedJob = { jobId: string; articleId: string; articleTitle: strin
 export type ClaimInput = { host: string; maxJobs: number; codexAuthMode: string | null; codexVersion: string | null };
 
 /**
- * 期限切れのRUNNINGをQUEUEDへ戻す。ポーラーが落ちた・サブPCが再起動した場合に、
+ * 期限切れのRUNNINGをQUEUEDへ戻す。ポーラーが落ちた・VPSが再起動した場合に、
  * ジョブが永久に「解析中」で残らないようにする。
  */
 async function releaseExpiredLeases(now: Date): Promise<void> {

@@ -55,7 +55,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
             <div>
               <h2>AI解析結果</h2>
               <p className="sub">
-                ChatGPT（サブPCの Codex CLI）
+                ChatGPT（VPS上の Codex CLI）
                 {analysis ? `　·　${formatDateTime(analysis.createdAt)} 完了` : ""}
                 {analysis?.durationMs ? `　·　所要 ${Math.round(analysis.durationMs / 1000)}秒` : ""}
                 {job ? `　·　実行 ${job.attempt}回目` : ""}
@@ -69,11 +69,11 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
           {job && (status === "FAILED" || status === "AUTH_REQUIRED") && <p className={`ai-hint ${status === "FAILED" ? "fail" : ""}`}>
             {job.failureKind ? FAILURE_KIND_LABELS[job.failureKind] : "解析に失敗しました"}
             {job.failureMessage ? `　${job.failureMessage}` : ""}
-            {status === "AUTH_REQUIRED" && <>　サブPCで <code>codex login status</code> を確認し、<code>codex login</code> でログインし直してから再実行してください。記事データは失われていません。</>}
+            {status === "AUTH_REQUIRED" && <>　VPSで <code>codex login status</code> を確認し、<code>codex login</code> でログインし直してから再実行してください。記事データは失われていません。</>}
           </p>}
 
           {!analysis ? (
-            <p className="body-text">まだ解析されていません。「AI解析」を押すとサブPCのCodex CLIがChatGPTアカウントで解析します。</p>
+            <p className="body-text">まだ解析されていません。「AI解析」を押すとVPS上のCodex CLIがChatGPTアカウントで解析します。</p>
           ) : <>
             <div className={`verdict-box ${analysis.relevance === "OUT_OF_SCOPE" ? "out" : ""}`}>
               <div className="verdict-line">
@@ -160,7 +160,7 @@ export default async function ArticleDetailPage({ params }: { params: Promise<{ 
         <section className="side-panel">
           <h2>実行環境</h2>
           <dl className="kv narrow">
-            <dt>実行役</dt><dd>{overview.worker ? `サブPC ${overview.worker.host} の Codex CLI` : "未接続"}</dd>
+            <dt>実行役</dt><dd>{overview.worker ? `${overview.worker.host} の Codex CLI` : "未接続"}</dd>
             <dt>認証方式</dt><dd>{overview.worker?.codexAuthMode === "chatgpt" ? "ChatGPTアカウント" : (overview.worker?.codexAuthMode ?? "不明")}<br /><span className="conf">APIキー認証は使いません</span></dd>
             <dt>最終応答</dt><dd>{overview.worker ? formatElapsed(overview.worker.lastSeenAt) : "—"}</dd>
           </dl>
