@@ -1,5 +1,6 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import type { TriageParam } from "@/lib/triage";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 // 週の区切りは利用者のいるJST（UTC+9）の日曜0時（#43）。サーバーのタイムゾーン設定に結果を
@@ -176,15 +177,37 @@ export function toMergedSources(value: Prisma.JsonValue | null): MergedSource[] 
   return value.filter((item): item is MergedSource => typeof item === "object" && item !== null && typeof (item as MergedSource).url === "string" && typeof (item as MergedSource).normalizedUrl === "string");
 }
 
-/** トップ画面の新着記事一覧が表示する件数の上限。週1回程度の収集想定で、直近2回ぶんの目安。 */
-export const RECENT_LIMIT = 10;
+/** トップ画面の新着記事一覧が1つのタブで表示する件数の上限。日次収集が1回30件まで取り込む
+ * ようになった（#94）ため、未判定が数日ぶん溜まっても仕分けし切れる大きさにしてある。 */
+export const RECENT_LIMIT = 60;
 
 /** 収集日時（JST基準の日付）から見た「今日」「昨日」「それ以前」の区分。 */
 export type RecencyLabel = "today" | "yesterday" | "earlier";
 
-/** トップ画面向けに、収集日時（`collectedAt`）が新しい順で業界情報を取得する。 */
-export async function listRecentIndustryInformation(): Promise<IndustryInformationListItem[]> {
-  return prisma.industryInformation.findMany({ include: ARTICLE_ANALYSIS_INCLUDE, orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
+/** 仕分けの状態（#94）で絞る条件。`pending`は人がまだ判断していない記事（AIが対象外と判定した
+ * ものも含む）で、`src/lib/triage.ts`の`getTriageState()`と同じ読み方をDBの`where`で表したもの。 */
+function triageCondition(triage: TriageParam): Prisma.IndustryInformationWhereInput {
+  if (triage === "pending") return { reviewedAt: null };
+  if (triage === "adopted") return { reviewedAt: { not: null }, weeklyCandidate: true };
+  if (triage === "rejected") return { reviewedAt: { not: null }, weeklyCandidate: false };
+  return {};
+}
+
+/** トップ画面向けに、仕分けの状態で絞った業界情報を収集日時（`collectedAt`）が新しい順で取得する。 */
+export async function listRecentIndustryInformation(triage: TriageParam): Promise<IndustryInformationListItem[]> {
+  return prisma.industryInformation.findMany({ where: triageCondition(triage), include: ARTICLE_ANALYSIS_INCLUDE, orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
+}
+
+export type TriageCounts = Record<TriageParam, number>;
+
+/** タブに添える件数。`all`は3つの合計（状態は互いに排他なので、全件数と一致する）。 */
+export async function countTriage(): Promise<TriageCounts> {
+  const [pending, adopted, rejected] = await Promise.all([
+    prisma.industryInformation.count({ where: triageCondition("pending") }),
+    prisma.industryInformation.count({ where: triageCondition("adopted") }),
+    prisma.industryInformation.count({ where: triageCondition("rejected") }),
+  ]);
+  return { pending, adopted, rejected, all: pending + adopted + rejected };
 }
 
 /** `date`のJST日付が`now`から見て今日・昨日・それ以前のどれかを返す。 */

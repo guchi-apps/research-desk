@@ -244,8 +244,20 @@ export async function applyHumanReview(input: ReviewInput, now = new Date()): Pr
  * 入口で、これも人の判断なので`reviewedAt`を立てる（以降AIの判定で書き換わらない）。
  */
 export async function setWeeklyCandidate(articleId: string, weeklyCandidate: boolean, reviewedBy: string, now = new Date()): Promise<boolean> {
-  const updated = await prisma.industryInformation.updateMany({ where: { id: articleId }, data: { weeklyCandidate, reviewedAt: now, reviewedBy } });
-  return updated.count > 0;
+  return (await setTriageDecision([articleId], weeklyCandidate, reviewedBy, now)) > 0;
+}
+
+/**
+ * 複数の記事をまとめて採用／不採用にする（#94。新着記事画面の仕分け）。
+ *
+ * 採用＝`weeklyCandidate: true`、不採用＝`false`で、どちらも人の判断なので`reviewedAt`を立てる。
+ * 不採用は削除ではなく隠すだけ——行を消すとURLの一意制約も消え、翌日の自動収集が同じ記事を
+ * 未判定として登録し直す。更新できた件数を返す（存在しないIDは数に入らない）。
+ */
+export async function setTriageDecision(articleIds: string[], adopt: boolean, reviewedBy: string, now = new Date()): Promise<number> {
+  if (articleIds.length === 0) return 0;
+  const updated = await prisma.industryInformation.updateMany({ where: { id: { in: articleIds } }, data: { weeklyCandidate: adopt, reviewedAt: now, reviewedBy } });
+  return updated.count;
 }
 
 // --- 画面向けの取得 -------------------------------------------------------------------

@@ -64,7 +64,7 @@ export default function AnalysisReviewForm({ articleId, relevance, importance, w
       <label className="check">
         {/* 対象外を選ぶと週報候補からは必ず外れるため、チェックは操作できないようにする。 */}
         <input type="checkbox" checked={form.relevance !== "OUT_OF_SCOPE" && form.weeklyCandidate} disabled={form.relevance === "OUT_OF_SCOPE"} onChange={(event) => setForm({ ...form, weeklyCandidate: event.target.checked })} />
-        <span>週報の候補に含める</span>
+        <span>採用する（週報の候補に含める）</span>
       </label>
       <label className="field">
         <span>メモ（任意）</span>
