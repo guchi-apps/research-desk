@@ -29,6 +29,18 @@ export type ChangelogEntry = {
  */
 export const APP_CHANGELOG: ChangelogEntry[] = [
   {
+    version: "1.5.2",
+    date: "2026-09-06",
+    changes: [
+      "画像を社用メールに送信する機能で、送信ボタンを押しても常に失敗してしまう不具合を修正しました。",
+    ],
+    usage: [
+      "1. サイドバーの「📷　画像を送る」を開く",
+      "2. 送信したい画像を選択し、必要事項を入力して送信ボタンを押す",
+      "3. 「送信しました。Gmailで受信を確認してください。」と表示されれば成功です",
+    ],
+  },
+  {
     version: "1.5.1",
     date: "2026-09-06",
     changes: [
