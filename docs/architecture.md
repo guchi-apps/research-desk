@@ -577,3 +577,68 @@ codex login status                              # 人が読む用。`Logged in u
 ジョブの判定ルールは`src/lib/analysis-job-rules.ts`へ、プロンプトと結果検証は
 `src/lib/analysis-prompt.ts`へ分けてある。DBを伴う挙動（実際の重複投入・リース回収）は
 本番相当のDBが無いローカルでは確かめられないため、コードレビューでの突き合わせに留めている。
+
+## 業界ニュースを週報メールで送る（`/dashboard/news-mail`, #110）
+
+選んだ週の記事にチェックを付け、AIのまとめを添えて**1通の図解つきメール**を社用アドレスへ送る
+画面。送信経路は画像メール（#64）と同じで、Gmail送信・宛先/BCCの固定・二重送信の防止はAIDE側が
+担い、Research Desk側は「AIDEへ送信リクエストを送るところまで」を持つ。環境変数は
+`AIDE_NEWS_MAIL_URL`／`AIDE_NEWS_MAIL_TOKEN`（画像メールとは別のトークンにしてある。片方を
+失効させてももう片方が止まらないようにするため）。**AIDE側の受け口が入るまでエンドツーエンドの
+送信は動かない**（別Issueで切り出し済み）。
+
+### 週の対象は「公開日」だけで決めない
+
+業界ニュース画面（`/dashboard`）は公開日基準（`weekCondition()`）だが、週報メールでは
+**公開が前の週でも、その週に取得した記事**を送りたい。そのため画面に「対象の取り方」を置き、
+`src/lib/industry-information.ts`の`weekConditionByBasis()`で切り替える。
+
+| `?basis=` | 条件 |
+|---|---|
+| `published` | 従来どおり公開日→発生日→収集ランの重なり（`weekCondition()`） |
+| `collected` | `collectedAt`がその週（`collectedWeekCondition()`） |
+| `either` | 上の2つの和。**この画面の既定** |
+
+一覧・メール本文の「取得のみ」の札は`src/lib/news-mail.ts`の`isCollectedOnly()`が付ける。
+公開日（無ければ発生日）が週の外で収集日が週の中にある記事という**表示上の目印**で、
+DB側の絞り込み条件を厳密に写したものではない（どちらの日付も無い記事は元々収集日で週が
+決まるため「取得のみ」とは呼ばない）。既定の週は**先週**（`DEFAULT_WEEK_OFFSET = -1`）で、
+週明けに先週ぶんをまとめて送る使い方を前提にしている。
+
+### 本文はサーバーが組み立て、プレビューは同じ関数を呼ぶ
+
+`src/lib/news-mail.ts`はPrisma・Reactに触れない純粋なモジュールで、件名・HTML本文・テキスト本文を
+作る。**画面のプレビューと送信APIが同じ`buildNewsMailHtml()`を呼ぶ**ので、見えている内容と
+実際に送る内容が食い違わない。ブラウザから受け取るのは「どの記事を送るか」と件名だけで、
+本文のHTMLは受け取らない（任意のHTMLを送れる口を作らないため）。差し込む値はすべて
+`escapeHtml()`を通し、`href`は`https?:`で始まるURLだけを通す。
+
+HTMLは**tableとインラインスタイルだけ**で組む。Gmailは`<style>`の一部やflex/gridを落とすため。
+事業別の件数バーも画像ではなく幅を指定したtableのセルで描く——画像はGmailの初期表示で
+ブロックされることがあり、その場合に図が丸ごと読めなくなる。**`style`属性はダブルクォートで
+囲むので、`font-family`のフォント名はシングルクォートで書く**（ダブルのままだと属性がそこで
+閉じ、以降のHTMLが壊れる）。
+
+日付の整形と週の区切りは`src/lib/jst-week.ts`へ切り出した。週報メールの本文組み立てが
+**Prismaを読めない場所（`node --test`とブラウザ）**から同じ関数を使う必要があるため。
+`industry-information.ts`は従来と同じ名前で再エクスポートしているので、既存の呼び出し側は
+変わらない。**`pnpm test`から読むモジュールは`@/`エイリアスではなく相対パス＋拡張子で
+importする**（`@/`はtsconfigの`paths`で、Nodeの実行時解決には効かない）。
+
+### 週の総括（AI）は既存のポーラーに相乗りする
+
+「週の総括」は`WeeklyBriefJob`（`src/lib/weekly-brief.ts`）に積み、**記事解析（#79）と同じ
+VPS常駐ポーラー**（`scripts/codex-analysis-worker.mjs`）が実行する。ポーラーが読むのは
+`jobId`・`prompt`・`outputSchema`だけなので、`/api/internal/analysis/claim`の応答へ総括ジョブを
+混ぜ、`/report`をジョブIDで振り分けるだけで動く——**ポーラーのスクリプトは変更していない。**
+
+- **テーブルは`ArticleAnalysisJob`と分けた。** あちらの`articleId`はNOT NULLで記事側の
+  `analysisStatus`とも連動しており、nullableにして相乗りさせると記事解析側の前提（claim時の
+  状態更新・リース回収・二重実行防止）が広く崩れる
+- 二重実行の防止・リース回収の作りは記事解析と同じ（`activeKey`のUNIQUE、`leaseExpiresAt`）。
+  `activeKey`には**週の開始日時**を入れるので、同じ週の総括は同時に1本だけになる
+- **記事の解析を優先し、余った枠でだけ総括を取る**（`claimAnalysisJobs()`）。総括は1回あたり
+  数分かかるため、先に取ると仕分け待ちの記事解析が後回しになる
+- 結果は1ジョブ1件なので別テーブルを作らず同じ行に持つ（`headline`・`overview`・`topics`）
+- 画面は総括が`QUEUED`／`RUNNING`の間だけ30秒ごとに`router.refresh()`する。**総括が無くても
+  送信はできる**（その場合はメール本文からその節ごと落ちる）

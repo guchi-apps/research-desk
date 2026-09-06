@@ -8,6 +8,7 @@ import { usePathname } from "next/navigation";
 const workspaceLinks = [
   { href: "/", label: "⌂　新着記事", markActive: true },
   { href: "/dashboard", label: "▦　業界ニュース", markActive: true },
+  { href: "/dashboard/news-mail", label: "✉　ニュースを送る", markActive: true },
   { href: "/dashboard/image-mail", label: "📷　画像を送る", markActive: true },
   { href: "/dashboard", label: "☆　保存した情報", markActive: false },
   { href: "/dashboard", label: "↗　書き出し", markActive: false },

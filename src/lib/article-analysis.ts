@@ -1,10 +1,11 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
-import { canAcceptReport, classifyFailure, FAILURE_MESSAGE_LIMIT, isDuplicateJobError, shouldAutoExcludeFromWeekly, truncateFailureMessage, type FailureKindValue, type FailureSignal, type JobStatusValue } from "@/lib/analysis-job-rules";
+import { canAcceptReport, classifyFailure, FAILURE_MESSAGE_LIMIT, isDuplicateJobError, LEASE_SECONDS, MAX_CLAIM_JOBS, shouldAutoExcludeFromWeekly, truncateFailureMessage, type FailureKindValue, type FailureSignal, type JobStatusValue } from "@/lib/analysis-job-rules";
+import { claimWeeklyBriefJobs, reportWeeklyBriefResult } from "@/lib/weekly-brief";
 import { buildAnalysisPrompt, buildOutputSchema, parseAnalysisPayload, parseAnnouncedOn, type AnalysisImportanceValue, type AnalysisPeerArticle, type AnalysisRelevanceValue } from "@/lib/analysis-prompt";
 import { getWeekRange, weekCondition } from "@/lib/industry-information";
 
-export { FAILURE_MESSAGE_LIMIT };
+export { FAILURE_MESSAGE_LIMIT, LEASE_SECONDS, MAX_CLAIM_JOBS };
 export type { FailureKindValue, FailureSignal, JobStatusValue };
 
 /**
@@ -13,12 +14,6 @@ export type { FailureKindValue, FailureSignal, JobStatusValue };
  * 画面がジョブを積み、VPS上の常駐ポーラーが`claim`で取得して`report`で返す。実行役は
  * ChatGPTアカウントでログインしたCodex CLIで、Research Deskのサーバーは外部AIへ一切接続しない。
  */
-
-/** ポーラーがジョブを保持できる時間。これを過ぎたRUNNINGは落ちたとみなして再取得できる。 */
-export const LEASE_SECONDS = 15 * 60;
-
-/** 1回のclaimで渡せるジョブ数の上限。1件ずつ順に流す前提で小さくしてある。 */
-export const MAX_CLAIM_JOBS = 3;
 
 /** 重複判定のためにプロンプトへ載せる、同じ週の既存記事の件数上限。 */
 const PEER_LIMIT = 12;
@@ -54,7 +49,12 @@ export async function enqueueAnalysisJob(articleId: string, requestedBy: string 
 
 // --- ジョブの取得（ポーラー向け） -------------------------------------------------------
 
-export type ClaimedJob = { jobId: string; articleId: string; articleTitle: string; prompt: string; outputSchema: Record<string, unknown>; leaseExpiresAt: string };
+/**
+ * ポーラーへ渡すジョブ1件。**ポーラーが読むのは`jobId`・`prompt`・`outputSchema`だけ**なので、
+ * 週の総括（#110。`kind: "weekly_brief"`）を同じ配列へ混ぜても、ポーラーのスクリプトを
+ * 配り直す必要はない。`articleId`は記事解析のときだけ入り、総括ではnullになる。
+ */
+export type ClaimedJob = { jobId: string; kind: "article" | "weekly_brief"; articleId: string | null; articleTitle: string; prompt: string; outputSchema: Record<string, unknown>; leaseExpiresAt: string };
 export type ClaimInput = { host: string; maxJobs: number; codexAuthMode: string | null; codexVersion: string | null };
 
 /**
@@ -104,12 +104,22 @@ export async function claimAnalysisJobs(input: ClaimInput, now = new Date()): Pr
 
     claimed.push({
       jobId: candidate.id,
+      kind: "article",
       articleId: article.id,
       articleTitle: article.title,
       prompt: buildAnalysisPrompt(article, await loadWeekPeers(article.id, article.publishedAt ?? article.occurredAt ?? article.collectedAt, now)),
       outputSchema: buildOutputSchema(),
       leaseExpiresAt: leaseExpiresAt.toISOString(),
     });
+  }
+
+  // 記事の解析を優先し、余った枠でだけ週の総括（#110）を取る。総括は1回あたり数分かかるので、
+  // 先に取ると仕分けを待っている記事の解析が後回しになる。
+  if (claimed.length < take) {
+    const briefs = await claimWeeklyBriefJobs(input.host, take - claimed.length, now);
+    for (const brief of briefs) {
+      claimed.push({ jobId: brief.jobId, kind: "weekly_brief", articleId: null, articleTitle: brief.label, prompt: brief.prompt, outputSchema: brief.outputSchema, leaseExpiresAt: brief.leaseExpiresAt });
+    }
   }
   return claimed;
 }
@@ -141,7 +151,9 @@ export type ReportResult = { ok: true; status: JobStatusValue } | { ok: false; r
 /** ポーラーからの結果を保存し、ジョブと記事の状態を進める。 */
 export async function reportAnalysisResult(input: ReportInput, now = new Date()): Promise<ReportResult> {
   const job = await prisma.articleAnalysisJob.findUnique({ where: { id: input.jobId }, select: { id: true, articleId: true, status: true } });
-  if (!job) return { ok: false, reason: "not_found" };
+  // 記事解析のジョブに無ければ週の総括（#110）として扱う。ポーラーはどちらもjobIdだけを
+  // 送ってくるため、振り分けはここで行う（報告APIの契約は変えない）。
+  if (!job) return reportWeeklyBriefResult(input, now);
   // 期限切れで一度QUEUEDへ戻ったジョブへ、遅れて届いた結果は捨てる（次の実行が正になる）。
   if (!canAcceptReport(job.status)) return { ok: false, reason: "not_running" };
 
