@@ -13,6 +13,14 @@ export type FailureKindValue = "AUTH_REQUIRED" | "RATE_LIMITED" | "INVALID_OUTPU
 /** 失敗メッセージとして保存する長さの上限。実行ログをそのまま溜め込まないため切る。 */
 export const FAILURE_MESSAGE_LIMIT = 600;
 
+/** ポーラーがジョブを保持できる時間（秒）。これを過ぎた`RUNNING`は落ちたとみなして再取得できる。
+ * 記事の解析（`src/lib/article-analysis.ts`）と週の総括（`src/lib/weekly-brief.ts`）が同じ
+ * ポーラーに実行されるため、値はここ1か所に置く。 */
+export const LEASE_SECONDS = 15 * 60;
+
+/** 1回のclaimで渡せるジョブ数の上限。1件ずつ順に流す前提で小さくしてある。 */
+export const MAX_CLAIM_JOBS = 3;
+
 export type FailureSignal = { exitCode: number | null; stderrTail: string | null; codexAuthMode: string | null; timedOut?: boolean };
 export type FailureClassification = { status: "FAILED" | "AUTH_REQUIRED"; failureKind: FailureKindValue; message: string };
 
