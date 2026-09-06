@@ -16,7 +16,7 @@
 
 // `node --test`（型を剥がしてTypeScriptのまま実行する）から読めるよう、依存は相対パス＋拡張子
 // つきで書く。`@/`のエイリアスはtsconfigのpathsで、Nodeの実行時解決には効かない。
-import { formatIsoDate, formatWeekLabel, isWithinWeek } from "./jst-week.ts";
+import { formatIsoDate, formatWeekLabel, isWithinWeek, OLDEST_WEEK_OFFSET } from "./jst-week.ts";
 import type { WeekRange } from "./jst-week.ts";
 import type { WeeklyBriefTopic } from "./weekly-brief-prompt.ts";
 
@@ -106,9 +106,20 @@ export function defaultSubjectBody(range: WeekRange, articleCount: number): stri
   return `${formatWeekLabel(range)} の業界ニュース（${articleCount}件）`;
 }
 
+/**
+ * 件名として安全な1行にする。
+ *
+ * **改行と制御文字を必ず落とす。** この値はAIDE側でメールヘッダー（`Subject:`）へ載るため、
+ * 改行が残ると任意のヘッダーを差し込める経路になり得る（現状のAIDE側の実装がどうであれ、
+ * 値を作るこちら側で閉じておく）。連続する空白は1つにまとめる。
+ */
+export function sanitizeSubjectBody(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim();
+}
+
 /** 件名。接頭辞は常に付き、本文側だけを利用者が編集できる。 */
 export function buildNewsMailSubject(subjectBody: string): string {
-  const body = subjectBody.trim();
+  const body = sanitizeSubjectBody(subjectBody);
   return body ? `${SUBJECT_PREFIX} ${body}` : SUBJECT_PREFIX;
 }
 
@@ -334,14 +345,16 @@ export function parseNewsMailRequest(body: unknown): NewsMailRequest | null {
   const articleIds = Array.isArray(body.articleIds) ? [...new Set(body.articleIds.filter((id): id is string => typeof id === "string" && id.trim() !== ""))] : [];
   if (articleIds.length === 0 || articleIds.length > MAX_MAIL_ARTICLES) return null;
 
-  const subjectBody = typeof body.subjectBody === "string" ? body.subjectBody.trim() : "";
+  const subjectBody = typeof body.subjectBody === "string" ? sanitizeSubjectBody(body.subjectBody) : "";
   if (subjectBody === "" || subjectBody.length > MAX_SUBJECT_BODY_LENGTH) return null;
 
   const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
   if (idempotencyKey === "" || idempotencyKey.length > 200) return null;
 
+  // 週送りで遡れる範囲は画面と揃える（`OLDEST_WEEK_OFFSET`）。ここだけ広いと、画面から
+  // 到達できない週の総括と紐付いたリクエストを受け付けてしまう。
   const weekOffset = typeof body.weekOffset === "number" && Number.isInteger(body.weekOffset) ? body.weekOffset : null;
-  if (weekOffset === null || weekOffset > 0 || weekOffset < -52) return null;
+  if (weekOffset === null || weekOffset > 0 || weekOffset < OLDEST_WEEK_OFFSET) return null;
 
   const basis = body.basis === "published" || body.basis === "collected" || body.basis === "either" ? body.basis : null;
   if (basis === null) return null;

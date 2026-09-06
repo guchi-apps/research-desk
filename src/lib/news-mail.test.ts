@@ -12,6 +12,7 @@ import {
   isCollectedOnly,
   MAX_MAIL_ARTICLES,
   parseNewsMailRequest,
+  sanitizeSubjectBody,
   SUBJECT_PREFIX,
   type NewsMailArticle,
 } from "./news-mail.ts";
@@ -94,6 +95,18 @@ describe("buildNewsMailSubject", () => {
 
   it("本文が空でも接頭辞だけは残る", () => {
     assert.equal(buildNewsMailSubject("   "), SUBJECT_PREFIX);
+  });
+
+  // 件名はAIDE側でメールヘッダーへ載る。改行が残ると任意のヘッダーを差し込める経路になり得る。
+  it("改行・制御文字を落として1行にする", () => {
+    assert.equal(buildNewsMailSubject("先週の\r\nBcc: evil@example.com"), `${SUBJECT_PREFIX} 先週の Bcc: evil@example.com`);
+    assert.ok(!buildNewsMailSubject("a\nb").includes("\n"));
+  });
+});
+
+describe("sanitizeSubjectBody", () => {
+  it("制御文字を空白にし、連続する空白をまとめる", () => {
+    assert.equal(sanitizeSubjectBody("  a\t\tb\u0000c  "), "a b c");
   });
 });
 
@@ -199,8 +212,14 @@ describe("parseNewsMailRequest", () => {
     assert.equal(parseNewsMailRequest({ ...valid, subjectBody: "あ".repeat(400) }), null);
   });
 
-  it("未来の週・知らない基準・鍵なしは受け付けない", () => {
+  it("件名の改行は落としたうえで受け付ける", () => {
+    assert.equal(parseNewsMailRequest({ ...valid, subjectBody: "先週の\nBcc: evil@example.com" })?.subjectBody, "先週の Bcc: evil@example.com");
+  });
+
+  it("未来の週・画面から到達できない週・知らない基準・鍵なしは受け付けない", () => {
     assert.equal(parseNewsMailRequest({ ...valid, weekOffset: 1 }), null);
+    assert.equal(parseNewsMailRequest({ ...valid, weekOffset: -9 }), null);
+    assert.equal(parseNewsMailRequest({ ...valid, weekOffset: -8 })?.weekOffset, -8);
     assert.equal(parseNewsMailRequest({ ...valid, basis: "unknown" }), null);
     assert.equal(parseNewsMailRequest({ ...valid, idempotencyKey: "" }), null);
   });
