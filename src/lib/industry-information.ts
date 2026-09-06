@@ -1,20 +1,28 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { getWeekRange, type WeekRange } from "@/lib/jst-week";
 import type { TriageParam } from "@/lib/triage";
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-// 週の区切りは利用者のいるJST（UTC+9）の日曜0時（#43）。サーバーのタイムゾーン設定に結果を
-// 左右させないため、Dateのローカルメソッドは使わずオフセットを足してUTCとして扱う。
-const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
-
-/** 週送りで遡れる上限（`?week=`の下限）。0が今週。 */
-export const OLDEST_WEEK_OFFSET = -8;
+// 週の区切り・日付整形はPrismaに触れない`src/lib/jst-week.ts`が持つ（#110）。週報メールの
+// 本文組み立てがブラウザ側と単体テストからも同じ関数を使うため切り出したもので、
+// 既存の呼び出し側が変わらないようここから同じ名前で再エクスポートする。
+export { DAY_MS, formatDate, formatDateTime, formatIsoDate, formatWeekLabel, getRecencyLabel, getWeekRange, isWithinWeek, jstParts, OLDEST_WEEK_OFFSET, parseWeekOffset } from "@/lib/jst-week";
+export type { RecencyLabel, WeekRange } from "@/lib/jst-week";
 
 export type BusinessParam = "all" | "delivery" | "locker";
 export type SourceParam = "all" | "primary" | "related";
 export type ImportanceParam = "all" | "high" | "medium" | "reference";
 /** AI解析の絞り込み（#79）。`pending`は未解析・待ち・実行中、`attention`は失敗・認証待ち。 */
 export type AnalysisParam = "all" | "pending" | "analyzed" | "attention";
+
+/**
+ * 週の対象記事の拾い方（#110）。
+ *
+ * `published`はこれまでどおり公開日（未設定なら発生日・収集ラン）で判定する。`collected`は
+ * 「その週にこのアプリが取得した記事」で、公開日が前の週でも先週拾ったものを落とさないための
+ * 基準。`either`はその和で、週報メール画面の既定にしてある。
+ */
+export type WeekBasisParam = "published" | "collected" | "either";
 
 export type IndustryInformationFilters = {
   weekOffset: number;
@@ -27,51 +35,15 @@ export type IndustryInformationFilters = {
   hideExcluded: boolean;
 };
 
-export type WeekRange = { start: Date; end: Date };
-
 const BUSINESS_BY_PARAM = { delivery: "DELIVERY", locker: "LOCKER" } as const;
 const IMPORTANCE_BY_PARAM = { high: "HIGH", medium: "MEDIUM", reference: "REFERENCE" } as const;
 // キーワードは文字列列だけ部分一致で引く。`keywords`・`tags`はJSON列で、Prismaが出せるのは
 // 要素の完全一致（array_contains = JSON_CONTAINS）までのため、部分一致は文字列列に任せる。
 const KEYWORD_TEXT_FIELDS = ["title", "summary", "targetCompany", "targetProduct", "sourceName", "publisher"] as const;
 
-/** `?week=`の値を扱える範囲（`OLDEST_WEEK_OFFSET`〜0）の整数へ丸める。 */
-export function parseWeekOffset(value: string | string[] | undefined): number {
-  const parsed = Number(typeof value === "string" ? value : 0);
-  return Number.isInteger(parsed) && parsed >= OLDEST_WEEK_OFFSET && parsed <= 0 ? parsed : 0;
-}
-
-/** 週送りのオフセットから、その週（JSTの日曜0時〜翌週の日曜0時）のUTC範囲を返す。 */
-export function getWeekRange(weekOffset: number, now = new Date()): WeekRange {
-  const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
-  const daysFromSunday = jstNow.getUTCDay();
-  const sundayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromSunday + weekOffset * 7);
-  const start = new Date(sundayJst - JST_OFFSET_MS);
-  return { start, end: new Date(start.getTime() + 7 * DAY_MS) };
-}
-
-function jstParts(date: Date) {
-  const jst = new Date(date.getTime() + JST_OFFSET_MS);
-  return { year: jst.getUTCFullYear(), month: jst.getUTCMonth() + 1, day: jst.getUTCDate(), hour: jst.getUTCHours(), minute: jst.getUTCMinutes() };
-}
-
-/** 週見出し（例: `2026年8月24日 — 8月30日`）。 */
-export function formatWeekLabel(range: WeekRange): string {
-  const from = jstParts(range.start);
-  const to = jstParts(new Date(range.end.getTime() - DAY_MS));
-  return `${from.year}年${from.month}月${from.day}日 — ${to.month}月${to.day}日`;
-}
-
-/** カードの日付（例: `8月28日`）。 */
-export function formatDate(date: Date): string {
-  const { month, day } = jstParts(date);
-  return `${month}月${day}日`;
-}
-
-/** ヘッダーの最終更新（例: `8月30日 09:00`）。 */
-export function formatDateTime(date: Date): string {
-  const { month, day, hour, minute } = jstParts(date);
-  return `${month}月${day}日 ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+/** `?basis=`を扱える値へ丸める。既定は`either`（公開日か収集日のどちらかがその週）。 */
+export function parseWeekBasis(value: string | string[] | undefined): WeekBasisParam {
+  return value === "published" || value === "collected" ? value : "either";
 }
 
 // 週の判定は公開日（`publishedAt`）を基準にする。公開日が未設定の記事は、発生日（`occurredAt`）が
@@ -107,6 +79,24 @@ export function weekCondition(range: WeekRange): Prisma.IndustryInformationWhere
       { publishedAt: null, occurredAt: null, OR: byRunOrCollected },
     ],
   };
+}
+
+/** その週にこのアプリが取得した記事（`collectedAt`がその週）。#110の「この週に取得」。 */
+export function collectedWeekCondition(range: WeekRange): Prisma.IndustryInformationWhereInput {
+  return { collectedAt: { gte: range.start, lt: range.end } };
+}
+
+/**
+ * 「対象の取り方」（#110）で切り替える週の絞り込み条件。
+ *
+ * 業界ニュース画面は従来どおり公開日基準（`published`）だが、週報メールでは
+ * **公開日が前の週でもその週に取得した記事**を落としたくない。`either`はその和で、
+ * 「先週取得できたデータも送れるようにしたい」という要件をそのまま条件にしたもの。
+ */
+export function weekConditionByBasis(range: WeekRange, basis: WeekBasisParam): Prisma.IndustryInformationWhereInput {
+  if (basis === "published") return weekCondition(range);
+  if (basis === "collected") return collectedWeekCondition(range);
+  return { OR: [weekCondition(range), collectedWeekCondition(range)] };
 }
 
 function keywordCondition(keyword: string): Prisma.IndustryInformationWhereInput {
@@ -181,9 +171,6 @@ export function toMergedSources(value: Prisma.JsonValue | null): MergedSource[] 
  * ようになった（#94）ため、未判定が数日ぶん溜まっても仕分けし切れる大きさにしてある。 */
 export const RECENT_LIMIT = 60;
 
-/** 収集日時（JST基準の日付）から見た「今日」「昨日」「それ以前」の区分。 */
-export type RecencyLabel = "today" | "yesterday" | "earlier";
-
 /** 仕分けの状態（#94）で絞る条件。`pending`は人がまだ判断していない記事（AIが対象外と判定した
  * ものも含む）で、`src/lib/triage.ts`の`getTriageState()`と同じ読み方をDBの`where`で表したもの。 */
 function triageCondition(triage: TriageParam): Prisma.IndustryInformationWhereInput {
@@ -210,18 +197,6 @@ export async function countTriage(): Promise<TriageCounts> {
   return { pending, adopted, rejected, all: pending + adopted + rejected };
 }
 
-/** `date`のJST日付が`now`から見て今日・昨日・それ以前のどれかを返す。 */
-export function getRecencyLabel(date: Date, now = new Date()): RecencyLabel {
-  const target = jstParts(date);
-  const today = jstParts(now);
-  const targetDay = Date.UTC(target.year, target.month - 1, target.day);
-  const todayDay = Date.UTC(today.year, today.month - 1, today.day);
-  const diffDays = Math.round((todayDay - targetDay) / DAY_MS);
-  if (diffDays <= 0) return "today";
-  if (diffDays === 1) return "yesterday";
-  return "earlier";
-}
-
 /** JSON列（`keywords`・`tags`）を表示用の文字列配列にする。 */
 export function toStringArray(value: Prisma.JsonValue | null): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
@@ -236,4 +211,58 @@ export function formatMetrics(value: Prisma.JsonValue | null): string | null {
     return entries.length ? entries.map(([key, item]) => `${key}: ${String(item)}`).join(" ／ ") : null;
   }
   return String(value);
+}
+
+// --- 週報メール画面（#110） -------------------------------------------------------------
+
+/** 週報メール画面の仕分け絞り込み。既定は「採用・未判定」（未判定も選べるようにするため）。 */
+export type MailTriageParam = "adopted" | "adopted_pending" | "all";
+
+export type NewsMailFilters = {
+  weekOffset: number;
+  basis: WeekBasisParam;
+  business: BusinessParam;
+  importance: ImportanceParam;
+  triage: MailTriageParam;
+  keyword: string;
+};
+
+export function parseMailTriageParam(value: string | string[] | undefined): MailTriageParam {
+  return value === "adopted" || value === "all" ? value : "adopted_pending";
+}
+
+/** 週報メールの候補として画面に並べる記事。人・AIどちらの不採用も既定では出さない。 */
+function mailTriageCondition(triage: MailTriageParam): Prisma.IndustryInformationWhereInput {
+  if (triage === "adopted") return { reviewedAt: { not: null }, weeklyCandidate: true };
+  if (triage === "all") return {};
+  // adopted_pending: 人が不採用にした記事だけを外す。AIが対象外と判定しただけの記事
+  // （`reviewedAt`がnull）は人の確認前なので残す（`src/lib/triage.ts`の状態の読み方と同じ）。
+  return { NOT: { reviewedAt: { not: null }, weeklyCandidate: false } };
+}
+
+/** 週報メール画面が表示する、その週の記事一覧。並びはメール本文と同じ（事業→重要度→公開日）。 */
+export async function listNewsMailArticles(filters: NewsMailFilters, now = new Date()): Promise<IndustryInformationListItem[]> {
+  const conditions: Prisma.IndustryInformationWhereInput[] = [
+    weekConditionByBasis(getWeekRange(filters.weekOffset, now), filters.basis),
+    mailTriageCondition(filters.triage),
+  ];
+  if (filters.business !== "all") conditions.push({ business: BUSINESS_BY_PARAM[filters.business] });
+  if (filters.importance !== "all") conditions.push({ importance: IMPORTANCE_BY_PARAM[filters.importance] });
+  if (filters.keyword) conditions.push(keywordCondition(filters.keyword));
+
+  return prisma.industryInformation.findMany({
+    where: { AND: conditions },
+    include: ARTICLE_ANALYSIS_INCLUDE,
+    orderBy: [{ business: "asc" }, { importance: "asc" }, { publishedAt: "desc" }, { collectedAt: "desc" }],
+  });
+}
+
+/** 送信時に、画面から渡された記事IDでDBを引き直す。本文はブラウザの値ではなくこれで組み立てる。 */
+export async function listIndustryInformationByIds(articleIds: string[]): Promise<IndustryInformationListItem[]> {
+  if (articleIds.length === 0) return [];
+  return prisma.industryInformation.findMany({
+    where: { id: { in: articleIds } },
+    include: ARTICLE_ANALYSIS_INCLUDE,
+    orderBy: [{ business: "asc" }, { importance: "asc" }, { publishedAt: "desc" }, { collectedAt: "desc" }],
+  });
 }
