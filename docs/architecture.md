@@ -133,23 +133,33 @@ pnpm exec prisma migrate diff --from-schema-datamodel /tmp/schema-old.prisma \
 混入する**（#43で実際に発生し、`prisma/migrations/20260831120000_daily_event_merge_and_weekly_cap/`
 を作り直した）。`> file`だけにし、`2>&1`は付けない。
 
-**サブPCのworktreeにはDB接続情報が渡されないため、DB書き込みを伴う動作確認はローカルでは
-できないことが多い**（#47）。1PasswordのDB共通アイテム（`db-host`＝`localhost`）は本番（VPS）上で
-接続する前提の値で、サブPCにはローカルMariaDBもDocker/Podmanも無く、`sudo`権限も無い
-セッションが大半のため、その場では用意できない。SSHトンネル（`database.md`）で本番相当のDBへ
-繋ぐ手もあるが、テスト用の書き込みで本番データを汚す危険がある。`.env.local`の`DATABASE_URL`を
-ダミー値にしても`requireInternalApiKey()`・`validateInput()`（入力検証）までは到達できるため、
-**バリデーションの単体的な挙動はcurlで確認できる**が、`upsertIndustryInformationEvent()`側の
-週あたり上限・置換／除外・統合更新の実地確認まではできない。それらはコードレビューでの
-突き合わせに留める判断もありうる。
+**worktreeには`.env.local`が置かれないため、DBを伴う動作確認は「まずローカルDBを用意する」
+ところから始まる**（#47・#110）。1PasswordのDB共通アイテム（`db-host`＝`localhost`）は本番（VPS）上で
+接続する前提の値で、そのままでは使えない。SSHトンネル（`database.md`）で本番相当のDBへ
+繋ぐ手もあるが、テスト用の書き込みで本番データを汚す危険がある。
+
+**ただしサブPCにはローカルのMariaDBが動いている**（127.0.0.1:3306。#110で確認。#47の時点の
+「ローカルMariaDBもDocker/Podmanも無い」という記述は現状と合わない）。他のアプリは
+`app_<アプリ名>_dev`のデータベースを各自の`.env.local`から使っている。research-desk用の
+ローカルDBは常設していないので、画面の実地確認が要るときは一時的に用意する。
+
+```bash
+# .env.local に DATABASE_URL（ローカルの app_research_desk_dev）を書いてから
+pnpm exec prisma migrate deploy
+DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではないので明示的に渡す
+```
+
+ダミーの`DATABASE_URL`のままでも`requireInternalApiKey()`・入力検証までは到達できるため、
+**バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/`・`/dashboard`・
+`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
+起きるため、**レスポンスは200のまま起動画面（`splash-shell`）で止まって見える**（ステータス
+コードだけでは気付けない）。
 
 **DBに依存しない画面（`/settings`等）は、`/api/dev/login`のバイパスCookie経由でcurlのまま
 確認できる**（#67）。`getCurrentUser()`はバイパスCookieがあればSupabaseへ問い合わせずに
 即座に認証済みを返すため（`src/lib/auth.ts`の`getDevLoginEmail()`が先に評価される）、
-`NEXT_PUBLIC_SUPABASE_URL`が未設定でも到達できる。一方、Prismaを呼ぶ画面（`/`・`/dashboard`）は
-`DATABASE_URL`未設定だと`PrismaClientInitializationError`になり、エラーが`loading.tsx`の
-Suspense境界内で起きるため、レスポンスは200のまま起動画面（`splash-shell`）で止まって見える
-（ステータスコードだけでは気付けない）。
+`NEXT_PUBLIC_SUPABASE_URL`が未設定でも到達できる。一方、Prismaを呼ぶ画面は`DATABASE_URL`が無い・繋がらないと
+起動画面で止まって見える（前掲「データベース」の節）。
 
 ## トップ画面（`/`, #42）
 
