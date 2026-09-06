@@ -14,7 +14,8 @@ interface AideImageMailConfig {
 }
 
 // research-desk→AIDE方向。aide-botへの通知（src/lib/aide-bot-notice.ts）と同じく、
-// research-desk側が持つのは「送信先URL・トークン」だけの薄いクライアント。
+// research-desk側が持つのは「AIDEのベースURL・トークン」だけの薄いクライアント。
+// パス（/api/image-mail/send）はAIDE_BOT_URLと同じ流儀でコード側が足す（#102）。
 function readAideImageMailConfig(): AideImageMailConfig | null {
   const url = (process.env.AIDE_IMAGE_MAIL_URL ?? "").trim().replace(/\/$/, "");
   const token = (process.env.AIDE_IMAGE_MAIL_TOKEN ?? "").trim();
@@ -67,7 +68,7 @@ export async function POST(request: Request) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
   try {
-    const response = await fetch(config.url, {
+    const response = await fetch(`${config.url}/api/image-mail/send`, {
       method: "POST",
       headers: { Authorization: `Bearer ${config.token}` },
       body: forwardForm,
