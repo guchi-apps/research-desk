@@ -38,6 +38,8 @@ type Props = {
   weekEndIso: string;
   brief: NewsMailBriefView | null;
   defaultSubjectBody: string;
+  /** 記事解析のキューに残っている件数（`QUEUED`＋`RUNNING`）。総括の待ち順の目安に使う。 */
+  analysisQueue: number;
 };
 
 type SendResult = { ok: true; articleCount: number; hasBrief: boolean } | { ok: false; message: string };
@@ -61,7 +63,7 @@ const BRIEF_POLL_MS = 30_000;
  * 一覧はチェックの状態でプレビューが変わるため、`TriageInbox`（#94）と違って選択状態を
  * Reactのstateで持つ。1週ぶんの記事は多くても数十件なので、この規模で問題にならない。
  */
-export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, weekEndIso, brief, defaultSubjectBody }: Props) {
+export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, weekEndIso, brief, defaultSubjectBody, analysisQueue }: Props) {
   const router = useRouter();
   const range = useMemo(() => ({ start: new Date(weekStartIso), end: new Date(weekEndIso) }), [weekStartIso, weekEndIso]);
   const adoptedIds = useMemo(() => rows.filter((row) => row.triage === "adopted").map((row) => row.article.id), [rows]);
@@ -79,7 +81,8 @@ export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, w
 
   const briefRunning = brief !== null && (brief.status === "QUEUED" || brief.status === "RUNNING");
 
-  // 総括はVPS上のCodexが数分かけて作るため、待っている間だけ画面を定期的に取り直す。
+  // 総括はVPS上のCodexが1件ずつ順に作る（記事の解析と同じキューをFIFOで共有し、先に積んだ
+  // 記事の解析が終わってから走る）。待っている間だけ画面を定期的に取り直す。
   useEffect(() => {
     if (!briefRunning) return;
     const timer = setInterval(() => startTransition(() => router.refresh()), BRIEF_POLL_MS);
@@ -158,7 +161,7 @@ export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, w
       });
       if (response.status === 409) setNotice("この週の総括はすでに生成中です。終わるまでお待ちください。");
       else if (!response.ok) setNotice("総括を依頼できませんでした。しばらくしてからもう一度お試しください。");
-      else setNotice("総括の作成を依頼しました。数分かかります。");
+      else setNotice(analysisQueue > 0 ? `総括の作成を依頼しました。先に走る記事の解析が${analysisQueue}件あるため、そのぶん待ちます。` : "総括の作成を依頼しました。数分かかります。");
     } catch {
       setNotice("総括を依頼できませんでした。通信状態を確認してください。");
     } finally {
@@ -212,7 +215,7 @@ export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, w
         {briefRunning ? (
           <span className="running">
             <i />
-            生成中
+            {analysisQueue > 0 ? `順番待ち（先に記事の解析が${analysisQueue}件）` : "生成中"}
           </span>
         ) : brief?.status === "COMPLETED" ? (
           <span className="stat done">作成済み</span>
@@ -225,7 +228,7 @@ export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, w
           {brief ? "作り直す" : "総括を作る"}
         </button>
         <span className="spacer" />
-        <span className="stat muted">総括が無くても送信できます</span>
+        <span className="stat muted">記事の解析が終わってから総括が走ります。総括が無くても送信できます</span>
       </div>
       {notice && <p className="mail-notice">{notice}</p>}
 

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import HeaderUserMenu from "@/components/HeaderUserMenu";
 import NewsMailPanel, { type NewsMailRow } from "@/components/NewsMailPanel";
+import { getAnalysisOverview } from "@/lib/article-analysis";
 import { getCurrentUser } from "@/lib/auth";
 import {
   formatWeekLabel,
@@ -55,7 +56,11 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
   const keyword = typeof params.keyword === "string" ? params.keyword.trim() : "";
 
   const range = getWeekRange(weekOffset);
-  const [items, brief] = await Promise.all([listNewsMailArticles({ weekOffset, basis, business, importance, triage, keyword }), getLatestWeeklyBrief(weekOffset)]);
+  const [items, brief, overview] = await Promise.all([
+    listNewsMailArticles({ weekOffset, basis, business, importance, triage, keyword }),
+    getLatestWeeklyBrief(weekOffset),
+    getAnalysisOverview(),
+  ]);
 
   const rows: NewsMailRow[] = items.map((item) => ({ article: toNewsMailArticleDto(item), triage: getTriageState(item) }));
   const adoptedCount = rows.filter((row) => row.triage === "adopted").length;
@@ -163,9 +168,12 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
         weekEndIso={range.end.toISOString()}
         brief={brief ? { status: brief.status, headline: brief.headline, overview: brief.overview, topics: brief.topics, failureMessage: brief.failureMessage } : null}
         defaultSubjectBody={defaultSubjectBody(range, adoptedCount || rows.length)}
+        analysisQueue={overview.queued + overview.running}
       />
 
-      <p className="note">※ AIの解析・総括はVPS上のCodex CLIが実行します。混み合っているときは数分かかります。送信はAIDE経由で、宛先・BCCはAIDE側の設定で固定しています。</p>
+      <p className="note">
+        ※ AIの解析・総括はVPS上のCodex CLIが1件ずつ順に実行します。総括は先に積んだ記事の解析が終わってから走るため、記事をまとめて解析に積んだ直後は待ち時間が長くなります（1件あたり数分）。送信はAIDE経由で、宛先・BCCはAIDE側の設定で固定しています。
+      </p>
     </section>
   );
 }

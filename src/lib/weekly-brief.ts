@@ -118,8 +118,15 @@ export async function getLatestWeeklyBrief(weekOffset: number, now = new Date())
 
 export type ClaimedBriefJob = { jobId: string; label: string; prompt: string; outputSchema: Record<string, unknown>; leaseExpiresAt: string };
 
-/** 期限切れのRUNNINGをQUEUEDへ戻す（記事解析の`releaseExpiredLeases()`と同じ扱い）。 */
-async function releaseExpiredBriefLeases(now: Date): Promise<void> {
+/**
+ * 期限切れのRUNNINGをQUEUEDへ戻す（記事解析の`releaseExpiredLeases()`と同じ扱い）。
+ *
+ * **`claimAnalysisJobs()`は取得の枠が残っていなくてもこれを呼ぶ。** 記事の解析だけで枠が
+ * 埋まっている間に総括ジョブの回収が止まると、ポーラーの停止・VPSの再起動で落ちた総括が
+ * `RUNNING`のまま残り、`activeKey`のUNIQUEで積み直すこともできなくなる（画面には「生成中」が
+ * 出続け、人が直す手段が無い）。
+ */
+export async function releaseExpiredWeeklyBriefLeases(now: Date): Promise<void> {
   await prisma.weeklyBriefJob.updateMany({
     where: { status: "RUNNING", leaseExpiresAt: { lt: now } },
     data: { status: "QUEUED", startedAt: null, leaseExpiresAt: null, workerHost: null },
@@ -134,7 +141,6 @@ async function releaseExpiredBriefLeases(now: Date): Promise<void> {
  */
 export async function claimWeeklyBriefJobs(host: string, take: number, now = new Date()): Promise<ClaimedBriefJob[]> {
   if (take <= 0) return [];
-  await releaseExpiredBriefLeases(now);
 
   const candidates = await prisma.weeklyBriefJob.findMany({ where: { status: "QUEUED" }, orderBy: { queuedAt: "asc" }, take, select: { id: true } });
   const leaseExpiresAt = new Date(now.getTime() + LEASE_SECONDS * 1000);

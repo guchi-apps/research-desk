@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canAcceptReport, classifyFailure, FAILURE_MESSAGE_LIMIT, isDuplicateJobError, LEASE_SECONDS, MAX_CLAIM_JOBS, shouldAutoExcludeFromWeekly, truncateFailureMessage, type FailureKindValue, type FailureSignal, type JobStatusValue } from "@/lib/analysis-job-rules";
-import { claimWeeklyBriefJobs, reportWeeklyBriefResult } from "@/lib/weekly-brief";
+import { claimWeeklyBriefJobs, releaseExpiredWeeklyBriefLeases, reportWeeklyBriefResult } from "@/lib/weekly-brief";
 import { buildAnalysisPrompt, buildOutputSchema, parseAnalysisPayload, parseAnnouncedOn, type AnalysisImportanceValue, type AnalysisPeerArticle, type AnalysisRelevanceValue } from "@/lib/analysis-prompt";
 import { getWeekRange, weekCondition } from "@/lib/industry-information";
 
@@ -83,6 +83,9 @@ export async function claimAnalysisJobs(input: ClaimInput, now = new Date()): Pr
     update: { lastSeenAt: now, codexAuthMode: input.codexAuthMode, codexVersion: input.codexVersion },
   });
   await releaseExpiredLeases(now);
+  // 総括ジョブ（#110）の回収は取得の枠が残っているかに関わらず行う。記事の解析で枠が
+  // 埋まっている間に止まると、落ちた総括がRUNNINGのまま戻らなくなる。
+  await releaseExpiredWeeklyBriefLeases(now);
 
   const take = Math.min(Math.max(input.maxJobs, 0), MAX_CLAIM_JOBS);
   if (take === 0) return [];
