@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import { buildImageMailZipFileName } from "@/lib/image-mail-zip-filename";
 import { json } from "@/lib/internal-auth";
 
 export const runtime = "nodejs";
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
   forwardForm.set("imageCount", String(imageCount));
   forwardForm.set("width", String(width));
   forwardForm.set("idempotencyKey", idempotencyKey.trim());
-  forwardForm.set("zip", zip, "images.zip");
+  forwardForm.set("zip", zip, buildImageMailZipFileName(title.trim(), new Date()));
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
