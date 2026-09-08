@@ -17,7 +17,7 @@ import {
   type NewsMailArticle,
 } from "./news-mail.ts";
 
-// 2026-09-06（日）を「今週」とする。先週はJSTの8/30(日)0時〜9/6(日)0時。
+// 2026-09-07（月）を「今週」とする。先週はJSTの8/31(月)0時〜9/7(月)0時。
 const NOW = new Date("2026-09-08T03:00:00Z");
 const LAST_WEEK = getWeekRange(-1, NOW);
 
@@ -113,7 +113,7 @@ describe("sanitizeSubjectBody", () => {
 describe("defaultSubjectBody", () => {
   it("週ラベルと件数を含む", () => {
     const subject = defaultSubjectBody(LAST_WEEK, 5);
-    assert.match(subject, /2026年8月30日 — 9月5日/);
+    assert.match(subject, /2026年8月31日 — 9月6日/);
     assert.match(subject, /5件/);
   });
 });
@@ -129,7 +129,7 @@ describe("buildNewsMailHtml", () => {
 
   it("週ラベル・記事タイトル・元記事リンクを含む", () => {
     const html = buildNewsMailHtml(input);
-    assert.match(html, /2026年8月30日 — 9月5日/);
+    assert.match(html, /2026年8月31日 — 9月6日/);
     assert.match(html, /後付けの通知ユニット/);
     assert.match(html, /href="https:\/\/example\.com\/news\/1"/);
   });

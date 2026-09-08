@@ -453,7 +453,7 @@ function selectCandidates(candidates: Candidate[]): Candidate[] {
 
 /**
  * 宅配・ロッカー業界情報の日次収集（#43。従来は週次のみだった`runWeeklyCollection`を改名）。
- * `targetFrom`は「今週（JST日曜0時始まり）の開始」に固定する。ローリング7日窓のままだと
+ * `targetFrom`は「今週（JST月曜0時始まり）の開始」に固定する。ローリング7日窓のままだと
  * 日次実行のたびに週境界をまたぐランが発生し、週内へ集約する前提が崩れるため。
  */
 export async function runDailyCollection(now = new Date()): Promise<CollectionResult> {
