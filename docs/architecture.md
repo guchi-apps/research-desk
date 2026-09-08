@@ -20,7 +20,7 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 |---|---|
 | `/login` | ログイン画面（`/auth/signin`への素のリンクのみ。JS不要） |
 | `/auth/signin` | Route Handler。サーバー側でOAuth認可URLを組み立てて302 |
-| `/auth/callback` | Route Handler。`code`をセッションと交換し`/`（トップ画面）へ |
+| `/auth/callback` | Route Handler。`code`をセッションと交換し`/dashboard`（業界ニュース画面）へ |
 | `/auth/signout` | Route Handler（POST）。セッションを破棄し`/login`へ |
 | `/api/dev/login` | CI・ローカル開発専用のバイパス（`NODE_ENV!=="production"`かつ`CI_LOGIN_BYPASS_SECRET`設定時のみ有効） |
 
@@ -52,7 +52,7 @@ car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先
 
 **`?next=`未指定時の既定の遷移先は`safeNextPath()`の`fallback`引数1箇所で管理している**（#42）。
 `/auth/callback`・`/auth/signin`・`/api/dev/login`の3ルートがこの関数を共通で呼んでおり、
-ログイン後の既定の遷移先を変える（例: トップ画面を追加してそちらへ変える）ときは、この1箇所を
+ログイン後の既定の遷移先を変える（#124で`/`から`/dashboard`へ変えた）ときは、この1箇所を
 直せば3ルートすべてに一貫して効く。ルートごとに個別のフォールバック値を持たせていないため、
 一部のルートだけ直し忘れるということが起きない。
 
@@ -150,8 +150,8 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 ```
 
 ダミーの`DATABASE_URL`のままでも`requireInternalApiKey()`・入力検証までは到達できるため、
-**バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/`・`/dashboard`・
-`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
+**バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/dashboard`・
+`/dashboard/inbox`・`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
 起きるため、**レスポンスは200のまま起動画面（`splash-shell`）で止まって見える**（ステータス
 コードだけでは気付けない）。
 
@@ -161,18 +161,21 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 `NEXT_PUBLIC_SUPABASE_URL`が未設定でも到達できる。一方、Prismaを呼ぶ画面は`DATABASE_URL`が無い・繋がらないと
 起動画面で止まって見える（前掲「データベース」の節）。
 
-## トップ画面（`/`, #42）
+## 新着記事の仕分け画面（`/dashboard/inbox`。元は`/`、#42）
 
-ログイン後の最初の画面。直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で
-最大`RECENT_LIMIT`（10）件取得し、JSTの日付基準で「今日」「昨日」「それ以前」に区分して表示する
+直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で最大`RECENT_LIMIT`（10）件
+取得し、JSTの日付基準で「今日」「昨日」「それ以前」に区分して表示する
 （`src/lib/industry-information.ts`の`listRecentIndustryInformation()`・`getRecencyLabel()`）。
 
 収集は週1回程度の想定（`COLLECTION_LIMIT`は1回6件）のため、「今日・昨日」だけに絞ると大半の日は
 空になる。そのため常に直近の記事を件数上限で取得し、区分ラベルは表示上の見出しとしてのみ使う
 （0件になる区分の見出しは出さない）。
 
-業界ニュース画面（`/dashboard`）への遷移はこの画面からのリンク（サイドバーnav・CTA）のみで、
-事業別の絞り込みや週送りはこれまでどおり`/dashboard`が担う。
+**#124でログイン後の初期画面を業界ニュース画面（`/dashboard`）に変えたのにともない、この画面は
+`/`から`/dashboard/inbox`へ移した。** `/`（`src/app/(app)/page.tsx`）は認証チェックのあと
+`/dashboard`へ`redirect()`するだけの薄いページになっている。業界ニュース画面からこの画面への
+遷移は、未判定の記事が1件以上あるときだけ出る強調バナー（`.new-banner`）と、サイドバーnavの
+「新着記事」リンクの2経路。事業別の絞り込みや週送りはこれまでどおり`/dashboard`が担う。
 
 ## 業界ニュース画面（`/dashboard`）
 
@@ -180,6 +183,10 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 だけが行う（#32）。クエリの組み立てと表示用の整形は`src/lib/industry-information.ts`に置き、
 `src/app/dashboard/page.tsx`はその結果を描くだけにしてある。1週ぶんは全体6件・各事業3件までなので、
 絞り込み後の件数はそのまま描画してよい大きさに収まる。
+
+**ログイン後の初期画面（#124）。** 未判定の新着記事（`countTriage()`の`pending`）が1件以上あるときだけ、
+画面上部に仕分け画面（`/dashboard/inbox`）への強調バナー（`.new-banner`）を出す。0件のときは
+バナー自体を出さない——常時出すと「未判定が無い週」の方が多いため、無条件のバナーはノイズになる。
 
 ### 週の区切りはJSTの日曜0時
 
@@ -263,7 +270,7 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 
 ## 記事の仕分け（採用／不採用、#94）
 
-新着記事画面（`/`）は#42では直近10件を眺めるだけの画面だったが、無関係な記事（検索語
+新着記事画面（`/dashboard/inbox`。#124以前は`/`）は#42では直近10件を眺めるだけの画面だったが、無関係な記事（検索語
 「ポスト」に当たった政治記事、「置き配」が題材のドラマ等）が混ざるため、#94で**仕分けの
 受け皿**にした。タブ「未判定／採用／不採用／すべて」（既定は未判定）、カードごとの
 「採用」「不採用」ボタン（`src/components/TriageActions.tsx`）、左のチェックとまとめて仕分ける
