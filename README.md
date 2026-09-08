@@ -39,7 +39,7 @@ curl -X POST https://research-desk.gucchii.com/api/collection/daily \
 `scripts/provision-secret.sh --repo guchi-apps/research-desk --key COLLECTION_CRON_SECRET --generate hex32`
 （issue-deck側のスクリプト）で行う。
 
-今週（JST日曜0時始まり）の候補を優先して宅配・ロッカー各5件まで、全体10件まで保持する。候補が
+今週（JST月曜0時始まり）の候補を優先して宅配・ロッカー各5件まで、全体10件まで保持する。候補が
 少ない場合は30日以内から補足する。URLが異なっていても発表主体・対象製品・発表日等から同一発表と
 判定した場合は新規作成せず既存記事を更新し、統合元URL・更新理由を記録する（#43）。同じURLの
 再実行は従来どおり登録しない。上限を超えた場合の置換/除外履歴は収集ラン（`CollectionRun`）に
@@ -51,7 +51,7 @@ curl -X POST https://research-desk.gucchii.com/api/collection/daily \
 `POST /api/notices` へ「読み物ができた」お知らせを1件積む（`src/lib/aide-bot-notice.ts`、#41）。
 フィード障害の通知（`.github/workflows/collection-daily.yml` の `notify` ジョブ）とは別経路で、
 こちらは収集結果そのものが対象。`AIDE_BOT_URL`・`AIDE_BOT_TOKEN`・`AIDE_BOT_EMAIL` が3つとも
-未設定なら何もせず、通知に失敗しても収集自体は成功のまま返す。dedupeKeyは収集対象週（JST日曜
+未設定なら何もせず、通知に失敗しても収集自体は成功のまま返す。dedupeKeyは収集対象週（JST月曜
 0時始まり）で、同じ週に日次実行が繰り返されても最新の件数へ上書きされる（累積ではない）。
 
 ### AIDE経由の週報登録（サーバー間連携API）

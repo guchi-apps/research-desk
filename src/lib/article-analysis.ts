@@ -129,8 +129,8 @@ export async function claimAnalysisJobs(input: ClaimInput, now = new Date()): Pr
 
 /** 重複候補の判定材料として、同じ週に登録済みの記事（自分以外）を渡す。 */
 async function loadWeekPeers(articleId: string, reference: Date, now: Date): Promise<AnalysisPeerArticle[]> {
-  // 表示側と同じ週の切り方（JST日曜0時始まり）を使う。参照日が何週前かを求めてから範囲にする。
-  // 基準は今週の**始まり**にする（終わりを基準にすると、今週の日曜0時ちょうどの記事が
+  // 表示側と同じ週の切り方（JST月曜0時始まり）を使う。参照日が何週前かを求めてから範囲にする。
+  // 基準は今週の**始まり**にする（終わりを基準にすると、今週の月曜0時ちょうどの記事が
   // 1週前として扱われる）。未来日の記事は今週として扱う。
   const currentWeek = getWeekRange(0, now);
   const weeksAgo = Math.min(0, Math.floor((reference.getTime() - currentWeek.start.getTime()) / (7 * 24 * 60 * 60 * 1000)));

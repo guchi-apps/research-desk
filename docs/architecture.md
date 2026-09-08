@@ -20,13 +20,15 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 |---|---|
 | `/login` | ログイン画面（`/auth/signin`への素のリンクのみ。JS不要） |
 | `/auth/signin` | Route Handler。サーバー側でOAuth認可URLを組み立てて302 |
-| `/auth/callback` | Route Handler。`code`をセッションと交換し`/`（トップ画面）へ |
+| `/auth/callback` | Route Handler。`code`をセッションと交換し`/dashboard`（業界ニュース画面）へ |
 | `/auth/signout` | Route Handler（POST）。セッションを破棄し`/login`へ |
 | `/api/dev/login` | CI・ローカル開発専用のバイパス（`NODE_ENV!=="production"`かつ`CI_LOGIN_BYPASS_SECRET`設定時のみ有効） |
 
-- `src/proxy.ts`（Next.js 16の`middleware.ts`相当）はトップ画面（`/`）と`/dashboard`配下だけを
-  保護対象にしている。全経路を対象にすると静的アセット（アイコン等）の除外漏れを踏みやすいため、
-  保護範囲を絞って回避した（`matcher: ["/", "/dashboard/:path*"]`）
+- `src/proxy.ts`（Next.js 16の`middleware.ts`相当）は`/`と`/dashboard`配下だけを保護対象に
+  している。全経路を対象にすると静的アセット（アイコン等）の除外漏れを踏みやすいため、
+  保護範囲を絞って回避した（`matcher: ["/", "/dashboard/:path*"]`）。`/dashboard/:path*`は
+  0個以上にマッチするため、`/dashboard`配下に新設した`/dashboard/inbox`（#124）もこのmatcherの
+  変更なしで保護対象に入る
 - ログイン可否は `ALLOWED_GOOGLE_EMAILS`（カンマ区切り）で絞る。DBにユーザーテーブルは持たない
 - `src/lib/auth.ts` の `getCurrentUser()` は「未ログイン」と「Supabaseへ疎通できず今は確認できない
   （`AuthRetryableFetchError` / 429）」を区別する。後者をログイン画面へ差し戻すと、電波の悪い
@@ -52,7 +54,7 @@ car-care・db-consoleと同じ。`?next=`のようなクエリ由来の戻り先
 
 **`?next=`未指定時の既定の遷移先は`safeNextPath()`の`fallback`引数1箇所で管理している**（#42）。
 `/auth/callback`・`/auth/signin`・`/api/dev/login`の3ルートがこの関数を共通で呼んでおり、
-ログイン後の既定の遷移先を変える（例: トップ画面を追加してそちらへ変える）ときは、この1箇所を
+ログイン後の既定の遷移先を変える（#124で`/`から`/dashboard`へ変えた）ときは、この1箇所を
 直せば3ルートすべてに一貫して効く。ルートごとに個別のフォールバック値を持たせていないため、
 一部のルートだけ直し忘れるということが起きない。
 
@@ -150,8 +152,8 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 ```
 
 ダミーの`DATABASE_URL`のままでも`requireInternalApiKey()`・入力検証までは到達できるため、
-**バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/`・`/dashboard`・
-`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
+**バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/dashboard`・
+`/dashboard/inbox`・`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
 起きるため、**レスポンスは200のまま起動画面（`splash-shell`）で止まって見える**（ステータス
 コードだけでは気付けない）。
 
@@ -161,18 +163,21 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 `NEXT_PUBLIC_SUPABASE_URL`が未設定でも到達できる。一方、Prismaを呼ぶ画面は`DATABASE_URL`が無い・繋がらないと
 起動画面で止まって見える（前掲「データベース」の節）。
 
-## トップ画面（`/`, #42）
+## 新着記事の仕分け画面（`/dashboard/inbox`。元は`/`、#42）
 
-ログイン後の最初の画面。直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で
-最大`RECENT_LIMIT`（10）件取得し、JSTの日付基準で「今日」「昨日」「それ以前」に区分して表示する
+直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で最大`RECENT_LIMIT`（10）件
+取得し、JSTの日付基準で「今日」「昨日」「それ以前」に区分して表示する
 （`src/lib/industry-information.ts`の`listRecentIndustryInformation()`・`getRecencyLabel()`）。
 
 収集は週1回程度の想定（`COLLECTION_LIMIT`は1回6件）のため、「今日・昨日」だけに絞ると大半の日は
 空になる。そのため常に直近の記事を件数上限で取得し、区分ラベルは表示上の見出しとしてのみ使う
 （0件になる区分の見出しは出さない）。
 
-業界ニュース画面（`/dashboard`）への遷移はこの画面からのリンク（サイドバーnav・CTA）のみで、
-事業別の絞り込みや週送りはこれまでどおり`/dashboard`が担う。
+**#124でログイン後の初期画面を業界ニュース画面（`/dashboard`）に変えたのにともない、この画面は
+`/`から`/dashboard/inbox`へ移した。** `/`（`src/app/(app)/page.tsx`）は認証チェックのあと
+`/dashboard`へ`redirect()`するだけの薄いページになっている。業界ニュース画面からこの画面への
+遷移は、未判定の記事が1件以上あるときだけ出る強調バナー（`.new-banner`）と、サイドバーnavの
+「新着記事」リンクの2経路。事業別の絞り込みや週送りはこれまでどおり`/dashboard`が担う。
 
 ## 業界ニュース画面（`/dashboard`）
 
@@ -181,14 +186,26 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 `src/app/dashboard/page.tsx`はその結果を描くだけにしてある。1週ぶんは全体6件・各事業3件までなので、
 絞り込み後の件数はそのまま描画してよい大きさに収まる。
 
-### 週の区切りはJSTの日曜0時
+**ログイン後の初期画面（#124）。** 未判定の新着記事（`countTriage()`の`pending`）が1件以上あるときだけ、
+画面上部に仕分け画面（`/dashboard/inbox`）への強調バナー（`.new-banner`）を出す。0件のときは
+バナー自体を出さない——常時出すと「未判定が無い週」の方が多いため、無条件のバナーはノイズになる。
 
-`?week=`は今週を`0`とするオフセットで、`-8`まで遡れる。週の範囲は**JST（UTC+9）の日曜0時**から
-7日間で（#43。それ以前は月曜0時始まりだった）、サーバーのタイムゾーン設定に結果を左右させない
-ため`Date`のローカルメソッドは使わず、オフセットを足してUTCとして扱う（`getWeekRange()`）。
-境界変更にともなう既存データの再集計・移行は不要（`weekCondition()`は公開日・発生日・収集ランの
-期間重なりで判定するロジックのままで、境界がずれるだけのため）。`weekCondition()`は
-`src/lib/collection.ts`のイベント統合・週あたり上限判定からも再利用する。
+### 週の区切りはJSTの月曜0時
+
+`?week=`は今週を`0`とするオフセットで、`-8`まで遡れる。週の範囲は**JST（UTC+9）の月曜0時**から
+7日間で（#125）、サーバーのタイムゾーン設定に結果を左右させないため`Date`のローカルメソッドは
+使わず、オフセットを足してUTCとして扱う（`getWeekRange()`）。境界変更にともなう既存データの
+再集計・移行は不要（`weekCondition()`は公開日・発生日・収集ランの期間重なりで判定するロジックの
+ままで、境界がずれるだけのため）。`weekCondition()`は`src/lib/collection.ts`のイベント統合・
+週あたり上限判定からも再利用する。
+
+**この境界は#43で一度日曜0時にしたものを、#125で月曜0時へ戻したもの。** #125で業界ニュース画面の
+週選択にカレンダーピッカーを追加するにあたり、カレンダーの表示（月曜始まり）と実際に集計される週を
+一致させないと、「画面のこの週に出ているのに週あたり上限は別の週の枠で数えられている」という
+食い違いが起きるため、表示・日次収集の対象期間・週あたり掲載上限・週報メールの既定週・週の総括
+AIジョブの境界が共有する`getWeekRange()`ごと月曜始まりへ変更した。**どの日付項目を優先して週を
+判定するか（公開日→発生日→収集期間、後述）という#43の判断基準はこれと無関係で変えていない。**
+週選択カレンダーピッカー自体は「業界ニュース画面（`/dashboard`）」の節を参照。
 
 どの週に出すかは公開日（`publishedAt`）で決める。`periodScope`（`IN_SCOPE`／補足の
 `PAST_30_DAYS_SUPPLEMENT`）による分岐はない——以前は補足だけ常に登録した収集ランの週に
@@ -211,9 +228,26 @@ DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではな�
 `IndustryInformation.collectionRunId`は`importWeeklyReport()`・`runDailyCollection()`（#43で
 `runWeeklyCollection()`から改名）が登録時に埋める（#37）。**公開日・発生日がどちらも未設定の
 記事だけ**、収集ランの対象期間（**期間の重なり**——`targetFrom < 週の終わり` かつ
-`targetTo > 週の始まり`。`targetTo`が翌週の日曜0時ちょうどでも翌週へはみ出さない）にフォール
+`targetTo > 週の始まり`。`targetTo`が翌週の月曜0時ちょうどでも翌週へはみ出さない）にフォール
 バックする。収集ランに紐付いていない記事（#37より前に登録したもの、あるいはランに紐付いていても
 公開日・発生日がどちらも未設定の記事）は、従来どおり収集日（`collectedAt`）の週で拾う。
+
+### 週選択のカレンダーピッカー（#125）
+
+`.week-nav`の週表示は`WeekCalendarPicker`（クライアントコンポーネント）で、クリックすると
+選べる9週間（今週〜8週間前）を月曜始まりの月カレンダーで表示するポップオーバーを開く。日付を
+クリックするとその週へ遷移し、今日の日付は二重丸で強調、各行には週番号（ISO 8601週番号）を表示する。
+
+**日付計算はすべてサーバー側（`src/lib/jst-week.ts`の`buildWeekCalendarMonths()`）で完結させ、
+クライアントには計算済みのグリッドデータ（月ごとの週の行・各日のISO日付文字列・所属する
+`weekOffset`・今日かどうか）だけを渡す。** クライアントコンポーネントは開閉・ホバー状態だけを持ち、
+`Date`を作り直さない（`jst-week.ts`の「Prismaに触れない純粋関数へ日付計算を寄せる」方針をそのまま
+UIの計算にも適用したもの）。週の境界が月曜0時始まりに揃っているため、選べる範囲は常に週の境界
+ちょうどで切れており、月をまたぐ週（例: 8/31〜9/6）もカレンダーの1行の中で自然に表現できる。
+選べる範囲より先（今週より後ろ）は、直近月をカレンダーとして見やすくするため、選択不可の行で
+当月末まで埋める。
+
+ISO週番号は業界情報の週判定には使わない、カレンダー上の目印表示専用（`getIsoWeekNumber()`）。
 
 ### 絞り込みはクエリ側で行う
 
@@ -239,7 +273,7 @@ Prismaが出せるJSON列の条件が完全一致までのためで、`ロッカ
 
 宅配・ロッカー業界情報の自動収集は`src/lib/collection.ts`の`runDailyCollection()`
 （元は週次のみの`runWeeklyCollection()`）が担当し、毎日20:00 JSTの`collection-daily.yml`が
-`POST /api/collection/daily`を叩く。`targetFrom`は「今週（JST日曜0時始まり）の開始」に固定する
+`POST /api/collection/daily`を叩く。`targetFrom`は「今週（JST月曜0時始まり）の開始」に固定する
 ——ローリング7日窓のままだと日次実行のたびに週境界をまたぐランが発生し、日次差分を週内へ集約する
 前提が崩れるため。
 
@@ -263,7 +297,7 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 
 ## 記事の仕分け（採用／不採用、#94）
 
-新着記事画面（`/`）は#42では直近10件を眺めるだけの画面だったが、無関係な記事（検索語
+新着記事画面（`/dashboard/inbox`。#124以前は`/`）は#42では直近10件を眺めるだけの画面だったが、無関係な記事（検索語
 「ポスト」に当たった政治記事、「置き配」が題材のドラマ等）が混ざるため、#94で**仕分けの
 受け皿**にした。タブ「未判定／採用／不採用／すべて」（既定は未判定）、カードごとの
 「採用」「不採用」ボタン（`src/components/TriageActions.tsx`）、左のチェックとまとめて仕分ける
@@ -361,10 +395,22 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
   PC・iPad向けのアバター＋ログアウトだけになった。バーのリンクは現在の画面と同じ行き先の
   ものを出さない（`/settings`では⚙、`/dashboard/image-mail`では📷を描画しない）
 - **左端からの右スワイプでも開く。業界ニュースの週送りスワイプ（#53）と奪い合うため、
-  境界を`src/lib/nav-swipe.ts`の`EDGE_ZONE_PX`に1か所だけ置いている。** 左端24px以内から
-  始まったスワイプはドロワー、それ以外は週送りが受け取る。両方が反応すると「メニューが開き
-  ながら前週へ飛ぶ」ことになる。なおiOS Safariでは左端スワイプがブラウザの「戻る」と競合し
-  得るため、☰ボタンを確実な導線として必ず併置する
+  境界を`src/lib/nav-swipe.ts`に置いている。** 週送り（`SwipeWeekNav`）がマウントされる
+  `/dashboard`だけ狭い境界（`EDGE_ZONE_PX`＝24px）を使い、それ以外の画面は開きやすさを
+  優先して広い境界（`WIDE_EDGE_ZONE_PX`＝48px）を使う（#123。24pxでは指でつかみにくいと
+  実機確認で指摘されたが、週送りと取り合う`/dashboard`だけは境界を広げられないため、画面
+  ごとに使い分けた）。境界内から始まったスワイプはドロワー、それ以外は週送りが受け取る。
+  両方が反応すると「メニューが開きながら前週へ飛ぶ」ことになる。なおiOS Safariでは左端
+  スワイプがブラウザの「戻る」と競合し得るため、☰ボタンを確実な導線として必ず併置する
+- **境界内の`touchmove`で「横方向のドラッグ」と確定した時点でだけ`event.preventDefault()`を
+  呼び、iOS Safariのエッジバック（「戻る」）ジェスチャーを抑える**（#123）。`touchstart`の
+  時点で境界内なら即座に`preventDefault()`する実装を最初に試したが、タップ・縦スクロールと
+  区別が付かないため、☰ボタンの左側やドロワー内リンク、本文の縦スクロールまで巻き込んで
+  押せなくなった（計画レビューで指摘）。`DIRECTION_LOCK_PX`（10px）分動くまでは様子を見て、
+  横移動が縦移動を上回った時点で初めて止める。`preventDefault()`を効かせるには`touchmove`の
+  リスナー登録を`{ passive: false }`にする必要がある（`touchstart`自体は`passive: true`の
+  まま）。この回避策はSafariでは概ね有効だがChrome for iOSでは効果が不安定という報告があり、
+  仕様化された挙動ではないため、☰ボタンという確実な代替導線は引き続き必須
 - **画面が変わったときの後始末はクリック側で行う。** `usePathname()`の変化を`useEffect`で見て
   `setOpen(false)`する書き方はeslintの`react-hooks/set-state-in-effect`で落ちるため、
   ドロワー内の`<a>`クリックを拾って閉じている
@@ -431,6 +477,11 @@ Next.jsのSuspense境界（`src/app/loading.tsx`）がサイドバーごと丸�
   ナビゲーションでも非同期なページ本体の代わりに`loading.tsx`をまず送出し、データが揃い次第
   差し替える。業界ニュース画面のフィルター送信・週送りリンクは元々素の`<a>`/`<form>`だが
   （#73では変更していない）、この仕組みにより移行後もスケルトンが機能する
+
+**#124で新着記事仕分け画面が`/`から`/dashboard/inbox`へ移ったのにともない、専用の`loading.tsx`
+（`HomeSkeleton`）もそちらへ移した。** `/`は認証チェック後に`redirect()`するだけになったため、
+`(app)/loading.tsx`のフォールバックは行き先（業界ニュース画面）に合わせて`DashboardSkeleton`に
+差し替えてある。
 - **CSSコメント中に`*/`を構成する文字列（例: `(app)/**/loading.tsx`のような二重引用）を
   書かない。** Turbopackのビルド用CSS最適化がコメントを字句レベルで終端してしまい、
   以降のコメント本文がCSSとして解釈されてビルド警告（`Unexpected token`）になる

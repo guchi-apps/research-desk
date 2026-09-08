@@ -31,7 +31,7 @@ function readAideBotConfig(): AideBotConfig | null {
 }
 
 /**
- * 収集対象週（`CollectionResult.targetFrom`＝JST日曜0時始まりのISO日時）をdedupeKeyにする。
+ * 収集対象週（`CollectionResult.targetFrom`＝JST月曜0時始まりのISO日時）をdedupeKeyにする。
  * runIdにすると同じ週の手動再実行のたびに別の吹き出しが積まれてしまうため、週単位で上書きさせる。
  */
 function weekDedupeKey(targetFrom: string): string {

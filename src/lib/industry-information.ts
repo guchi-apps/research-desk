@@ -6,8 +6,8 @@ import type { TriageParam } from "@/lib/triage";
 // 週の区切り・日付整形はPrismaに触れない`src/lib/jst-week.ts`が持つ（#110）。週報メールの
 // 本文組み立てがブラウザ側と単体テストからも同じ関数を使うため切り出したもので、
 // 既存の呼び出し側が変わらないようここから同じ名前で再エクスポートする。
-export { DAY_MS, formatDate, formatDateTime, formatIsoDate, formatWeekLabel, getRecencyLabel, getWeekRange, isWithinWeek, jstParts, OLDEST_WEEK_OFFSET, parseWeekOffset } from "@/lib/jst-week";
-export type { RecencyLabel, WeekRange } from "@/lib/jst-week";
+export { buildWeekCalendarMonths, DAY_MS, formatDate, formatDateTime, formatIsoDate, formatWeekLabel, getIsoWeekNumber, getRecencyLabel, getWeekRange, isWithinWeek, jstParts, OLDEST_WEEK_OFFSET, parseWeekOffset } from "@/lib/jst-week";
+export type { CalendarDay, CalendarMonth, CalendarWeekRow, RecencyLabel, WeekRange } from "@/lib/jst-week";
 
 export type BusinessParam = "all" | "delivery" | "locker";
 export type SourceParam = "all" | "primary" | "related";
@@ -57,13 +57,13 @@ export function parseWeekBasis(value: string | string[] | undefined): WeekBasisP
 // 週に出るのが利用者の期待と一致するため、`periodScope`による分岐はやめた。
 function runOrCollectedCondition(range: WeekRange): Prisma.IndustryInformationWhereInput[] {
   return [
-    // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の日曜0時ちょうどでも翌週には出さない）。
+    // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の月曜0時ちょうどでも翌週には出さない）。
     { collectionRun: { targetFrom: { lt: range.end }, targetTo: { gt: range.start } } },
     { collectionRunId: null, collectedAt: { gte: range.start, lt: range.end } },
   ];
 }
 
-/** 指定した週（JST日曜0時〜翌週日曜0時）に属するかどうかの絞り込み条件。`src/lib/collection.ts`の
+/** 指定した週（JST月曜0時〜翌週月曜0時）に属するかどうかの絞り込み条件。`src/lib/collection.ts`の
  * イベント統合・週あたり上限判定も、表示と同じ週の切り方に揃えるためこれを再利用する。
  *
  * `src/lib/collection.ts`側のイベント統合判定（`findEventMatch()`・`referenceDate`）は、これとは
@@ -183,6 +183,17 @@ function triageCondition(triage: TriageParam): Prisma.IndustryInformationWhereIn
 /** トップ画面向けに、仕分けの状態で絞った業界情報を収集日時（`collectedAt`）が新しい順で取得する。 */
 export async function listRecentIndustryInformation(triage: TriageParam): Promise<IndustryInformationListItem[]> {
   return prisma.industryInformation.findMany({ where: triageCondition(triage), include: ARTICLE_ANALYSIS_INCLUDE, orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
+}
+
+/**
+ * 業界ニュース画面の強調バナー（#124）用。`countTriage()`の`pending`は`{reviewedAt: null}`
+ * 全部で、AIが対象外と判定した記事（`ai_rejected`。人の確認待ちだが業界ニュース画面には出ない）
+ * も含んでしまう。バナーが指す「新着」は、既に業界ニュース画面に出ている・人がまだ仕分けていない
+ * 記事だけを指したいため、`weeklyCandidate: true`も条件に加えた狭い件数を別に持つ
+ * （`src/lib/triage.ts`の`getTriageState()`の`"pending"`と同じ条件）。
+ */
+export async function countPendingReview(): Promise<number> {
+  return prisma.industryInformation.count({ where: { reviewedAt: null, weeklyCandidate: true } });
 }
 
 export type TriageCounts = Record<TriageParam, number>;
