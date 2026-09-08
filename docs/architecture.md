@@ -24,9 +24,11 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 | `/auth/signout` | Route Handler（POST）。セッションを破棄し`/login`へ |
 | `/api/dev/login` | CI・ローカル開発専用のバイパス（`NODE_ENV!=="production"`かつ`CI_LOGIN_BYPASS_SECRET`設定時のみ有効） |
 
-- `src/proxy.ts`（Next.js 16の`middleware.ts`相当）はトップ画面（`/`）と`/dashboard`配下だけを
-  保護対象にしている。全経路を対象にすると静的アセット（アイコン等）の除外漏れを踏みやすいため、
-  保護範囲を絞って回避した（`matcher: ["/", "/dashboard/:path*"]`）
+- `src/proxy.ts`（Next.js 16の`middleware.ts`相当）は`/`と`/dashboard`配下だけを保護対象に
+  している。全経路を対象にすると静的アセット（アイコン等）の除外漏れを踏みやすいため、
+  保護範囲を絞って回避した（`matcher: ["/", "/dashboard/:path*"]`）。`/dashboard/:path*`は
+  0個以上にマッチするため、`/dashboard`配下に新設した`/dashboard/inbox`（#124）もこのmatcherの
+  変更なしで保護対象に入る
 - ログイン可否は `ALLOWED_GOOGLE_EMAILS`（カンマ区切り）で絞る。DBにユーザーテーブルは持たない
 - `src/lib/auth.ts` の `getCurrentUser()` は「未ログイン」と「Supabaseへ疎通できず今は確認できない
   （`AuthRetryableFetchError` / 429）」を区別する。後者をログイン画面へ差し戻すと、電波の悪い
@@ -438,6 +440,11 @@ Next.jsのSuspense境界（`src/app/loading.tsx`）がサイドバーごと丸�
   ナビゲーションでも非同期なページ本体の代わりに`loading.tsx`をまず送出し、データが揃い次第
   差し替える。業界ニュース画面のフィルター送信・週送りリンクは元々素の`<a>`/`<form>`だが
   （#73では変更していない）、この仕組みにより移行後もスケルトンが機能する
+
+**#124で新着記事仕分け画面が`/`から`/dashboard/inbox`へ移ったのにともない、専用の`loading.tsx`
+（`HomeSkeleton`）もそちらへ移した。** `/`は認証チェック後に`redirect()`するだけになったため、
+`(app)/loading.tsx`のフォールバックは行き先（業界ニュース画面）に合わせて`DashboardSkeleton`に
+差し替えてある。
 - **CSSコメント中に`*/`を構成する文字列（例: `(app)/**/loading.tsx`のような二重引用）を
   書かない。** Turbopackのビルド用CSS最適化がコメントを字句レベルで終端してしまい、
   以降のコメント本文がCSSとして解釈されてビルド警告（`Unexpected token`）になる
