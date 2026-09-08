@@ -185,6 +185,17 @@ export async function listRecentIndustryInformation(triage: TriageParam): Promis
   return prisma.industryInformation.findMany({ where: triageCondition(triage), include: ARTICLE_ANALYSIS_INCLUDE, orderBy: { collectedAt: "desc" }, take: RECENT_LIMIT });
 }
 
+/**
+ * 業界ニュース画面の強調バナー（#124）用。`countTriage()`の`pending`は`{reviewedAt: null}`
+ * 全部で、AIが対象外と判定した記事（`ai_rejected`。人の確認待ちだが業界ニュース画面には出ない）
+ * も含んでしまう。バナーが指す「新着」は、既に業界ニュース画面に出ている・人がまだ仕分けていない
+ * 記事だけを指したいため、`weeklyCandidate: true`も条件に加えた狭い件数を別に持つ
+ * （`src/lib/triage.ts`の`getTriageState()`の`"pending"`と同じ条件）。
+ */
+export async function countPendingReview(): Promise<number> {
+  return prisma.industryInformation.count({ where: { reviewedAt: null, weeklyCandidate: true } });
+}
+
 export type TriageCounts = Record<TriageParam, number>;
 
 /** タブに添える件数。`all`は3つの合計（状態は互いに排他なので、全件数と一致する）。 */
