@@ -8,7 +8,7 @@ export default async function SettingsPage() {
   if (user.status === "unavailable") return <section className="content"><div className="empty-state"><p>認証状態を確認できませんでした。しばらくしてから再読み込みしてください。</p></div></section>;
   if (user.status === "unauthenticated") redirect("/login");
 
-  return <section className="content"><Link className="breadcrumb" href="/dashboard">⌂　業界ニュースへ戻る</Link><header className="page-header"><div><p className="eyebrow">SETTINGS</p><h1>設定</h1><p className="lead">アカウント情報の確認と、アプリの更新履歴をまとめて確認できます。</p></div></header>
+  return <section className="content"><Link className="breadcrumb" href="/dashboard">‹　業界ニュースへ戻る</Link><header className="page-header"><div><p className="eyebrow">SETTINGS</p><h1>設定</h1><p className="lead">アカウント情報の確認と、アプリの更新履歴をまとめて確認できます。</p></div></header>
     <div className="settings-card">
       <h2>アカウント</h2>
       <p className="desc">ログイン中のGoogleアカウント</p>

@@ -81,7 +81,7 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
   return (
     <section className="content">
       <Link className="breadcrumb" href="/dashboard">
-        ▦　業界ニュースへ
+        ‹　業界ニュースへ戻る
       </Link>
       <header className="page-header">
         <div>

@@ -5,15 +5,20 @@ function Bar({ width, height = 12, className = "" }: { width: number | string; h
   return <div className={`sk ${className}`} style={{ width, height }} />;
 }
 
-function HeaderSkeleton({ ctaWidth = 150 }: { ctaWidth?: number }) {
+// `breadcrumb`は見出し左上のナビゲーションリンク（`.breadcrumb`）用、`ctaWidth`は`.top-actions`側
+// （ユーザーメニュー等）用。そのページの実際のヘッダーに無い要素は渡さない（#131）。
+function HeaderSkeleton({ breadcrumb = false, ctaWidth }: { breadcrumb?: boolean; ctaWidth?: number }) {
   return (
-    <header className="page-header">
-      <div>
-        <Bar width={110} height={10} className="sk-eyebrow" />
-        <Bar width={190} height={22} className="sk-title" />
-      </div>
-      <Bar width={ctaWidth} height={34} className="sk-cta" />
-    </header>
+    <>
+      {breadcrumb && <Bar width={130} height={11} className="sk-breadcrumb" />}
+      <header className="page-header">
+        <div>
+          <Bar width={110} height={10} className="sk-eyebrow" />
+          <Bar width={190} height={22} className="sk-title" />
+        </div>
+        {ctaWidth !== undefined && <Bar width={ctaWidth} height={34} className="sk-cta" />}
+      </header>
+    </>
   );
 }
 
@@ -39,7 +44,7 @@ function NewsCardSkeleton({ lines = 2 }: { lines?: number }) {
 export function HomeSkeleton() {
   return (
     <section className="content">
-      <HeaderSkeleton />
+      <HeaderSkeleton breadcrumb ctaWidth={100} />
       <Bar width="100%" height={42} className="sk-weeknav" />
       <Bar width="100%" height={44} className="sk-weeknav" />
       <NewsCardSkeleton />
@@ -98,7 +103,7 @@ export function ArticleDetailSkeleton() {
 export function ImageMailSkeleton() {
   return (
     <section className="content">
-      <HeaderSkeleton ctaWidth={90} />
+      <HeaderSkeleton breadcrumb ctaWidth={90} />
       <div className="imgmail-card">
         <Bar width="100%" height={42} />
         <Bar width="100%" height={120} />
@@ -112,7 +117,7 @@ export function ImageMailSkeleton() {
 export function NewsMailSkeleton() {
   return (
     <section className="content">
-      <HeaderSkeleton ctaWidth={140} />
+      <HeaderSkeleton breadcrumb ctaWidth={100} />
       <Bar width="100%" height={38} className="sk-weeknav" />
       <Bar width="100%" height={56} className="sk-weeknav" />
       <div className="sk-filters">
@@ -132,7 +137,7 @@ export function NewsMailSkeleton() {
 export function SettingsSkeleton() {
   return (
     <section className="content">
-      <HeaderSkeleton ctaWidth={150} />
+      <HeaderSkeleton breadcrumb />
       <div className="settings-card">
         <Bar width={90} height={16} />
         <Bar width="60%" />
