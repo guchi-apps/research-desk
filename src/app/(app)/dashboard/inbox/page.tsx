@@ -76,7 +76,8 @@ export default async function InboxPage({ searchParams }: { searchParams: Promis
   const groups: Record<RecencyLabel, IndustryInformationListItem[]> = { today: [], yesterday: [], earlier: [] };
   for (const item of recent) groups[getRecencyLabel(item.collectedAt)].push(item);
   return <section className="content triage-page">
-    <header className="page-header"><div><p className="eyebrow">LATEST UPDATES</p><h1>新着記事</h1><p className="lead">直近で収集した記事を新しい順に表示しています。関係ない記事は「不採用」で隠し、週報に載せたい記事は「採用」にします。</p></div><div className="top-actions"><a className="cta" href="/dashboard">業界ニュースを見る　▦</a><HeaderUserMenu /></div></header>
+    <a className="breadcrumb" href="/dashboard">業界ニュースを見る　▦</a>
+    <header className="page-header"><div><p className="eyebrow">LATEST UPDATES</p><h1>新着記事</h1><p className="lead">直近で収集した記事を新しい順に表示しています。関係ない記事は「不採用」で隠し、週報に載せたい記事は「採用」にします。</p></div><div className="top-actions"><HeaderUserMenu /></div></header>
     <nav className="triage-tabs" aria-label="仕分けの状態">{TRIAGE_PARAMS.map((param) => <Link key={param} className={param === triage ? "active" : ""} href={param === "pending" ? "/dashboard/inbox" : `/dashboard/inbox?triage=${param}`} aria-current={param === triage ? "page" : undefined}>{tabLabels[param]} <b>{counts[param]}</b></Link>)}</nav>
     <p className="triage-hint">{tabHints[triage]}</p>
     {recent.length === 0 ? <div className="no-results">{emptyMessages[triage]}</div> : <TriageInbox total={recent.length}>

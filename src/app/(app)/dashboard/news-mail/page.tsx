@@ -80,6 +80,9 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
 
   return (
     <section className="content">
+      <Link className="breadcrumb" href="/dashboard">
+        ▦　業界ニュースへ
+      </Link>
       <header className="page-header">
         <div>
           <p className="eyebrow">WEEKLY DIGEST MAIL</p>
@@ -87,9 +90,6 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
           <p className="lead">選んだ週の記事から送るものにチェックを付け、AIのまとめを添えて1通の週報メールにします。宛先は設定済みの社用アドレス固定です。</p>
         </div>
         <div className="top-actions">
-          <Link className="cta back" href="/dashboard">
-            ▦　業界ニュースへ
-          </Link>
           <HeaderUserMenu />
         </div>
       </header>
