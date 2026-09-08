@@ -11,7 +11,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "research-desk",
     short_name: "research-desk",
     description: "決めた条件で自動収集しつつクリップを溜め、AIアプリ（Claude／ChatGPT）に要約させ、資料として書き出す個人用ツール",
-    start_url: "/",
+    start_url: "/dashboard",
     display: "standalone",
     background_color: "#1d3440",
     theme_color: "#087f78",
