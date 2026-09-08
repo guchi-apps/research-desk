@@ -34,7 +34,7 @@ const articles: WeeklyBriefArticle[] = [
 describe("buildWeeklyBriefPrompt", () => {
   it("週ラベル・事業ごとの件数・記事の見出しを含む", () => {
     const prompt = buildWeeklyBriefPrompt(LAST_WEEK, articles);
-    assert.match(prompt, /2026年8月30日 — 9月5日/);
+    assert.match(prompt, /2026年8月31日 — 9月6日/);
     assert.match(prompt, /宅配 1件 ／ ロッカー 1件/);
     assert.match(prompt, /置き配推進事業の補助枠を拡大/);
     assert.match(prompt, /PUDOステーション/);
