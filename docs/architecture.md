@@ -361,10 +361,17 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
   PC・iPad向けのアバター＋ログアウトだけになった。バーのリンクは現在の画面と同じ行き先の
   ものを出さない（`/settings`では⚙、`/dashboard/image-mail`では📷を描画しない）
 - **左端からの右スワイプでも開く。業界ニュースの週送りスワイプ（#53）と奪い合うため、
-  境界を`src/lib/nav-swipe.ts`の`EDGE_ZONE_PX`に1か所だけ置いている。** 左端24px以内から
+  境界を`src/lib/nav-swipe.ts`の`EDGE_ZONE_PX`に1か所だけ置いている。** 左端32px以内から
   始まったスワイプはドロワー、それ以外は週送りが受け取る。両方が反応すると「メニューが開き
   ながら前週へ飛ぶ」ことになる。なおiOS Safariでは左端スワイプがブラウザの「戻る」と競合し
   得るため、☰ボタンを確実な導線として必ず併置する
+- **境界内の`touchstart`では`event.preventDefault()`を呼び、iOS Safariのエッジバック
+  （「戻る」）ジェスチャーを抑える**（#123）。実機確認で境界幅24pxが狭く開きにくいことと、
+  戻るジェスチャーと競合することの両方が指摘され、境界を32pxへ広げたうえでこの対策を追加した。
+  `preventDefault()`を効かせるには`touchstart`のリスナー登録を`{ passive: false }`にする
+  必要がある（`passive: true`のままだと呼び出しても無視される）。この回避策はSafariでは
+  概ね有効だがChrome for iOSでは効果が不安定という報告があり、仕様化された挙動ではないため、
+  ☰ボタンという確実な代替導線は引き続き必須
 - **画面が変わったときの後始末はクリック側で行う。** `usePathname()`の変化を`useEffect`で見て
   `setOpen(false)`する書き方はeslintの`react-hooks/set-state-in-effect`で落ちるため、
   ドロワー内の`<a>`クリックを拾って閉じている

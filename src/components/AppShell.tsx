@@ -53,6 +53,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       const touch = event.touches[0];
       start = { x: touch.clientX, y: touch.clientY };
       fromEdge = touch.clientX <= EDGE_ZONE_PX;
+      // 境界内から始まったタッチはドロワーの引き出し操作として扱うため、iOS Safariの
+      // エッジバック（「戻る」）ジェスチャーへ先に奪われないようここで止める（#123）。
+      if (fromEdge) event.preventDefault();
     }
 
     function handleTouchEnd(event: TouchEvent) {
@@ -78,7 +81,8 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
     }
 
     document.addEventListener("keydown", handleKeyDown);
-    document.addEventListener("touchstart", handleTouchStart, { passive: true });
+    // 境界内でpreventDefault()を呼ぶため、このリスナーだけpassive: falseにする。
+    document.addEventListener("touchstart", handleTouchStart, { passive: false });
     document.addEventListener("touchend", handleTouchEnd, { passive: true });
     document.addEventListener("touchcancel", handleTouchCancel, { passive: true });
     return () => {
