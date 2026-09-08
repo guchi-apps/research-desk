@@ -4,9 +4,18 @@
 // 数値をここ1か所に置き、両方から参照する（#80）。
 
 // 画面左端から何px以内で始まったスワイプをドロワーの引き出しとして扱うか。
+// `SwipeWeekNav`がマウントされる`/dashboard`専用の狭い境界（週送りと取り合うため広げられない）。
 export const EDGE_ZONE_PX = 24;
+
+// `/dashboard`以外（週送りが無い画面）でのドロワー用の境界幅。24pxでは指でつかみにくい
+// との指摘（#123）を受け、週送りと競合しない画面ではこちらを使って広く取る。
+export const WIDE_EDGE_ZONE_PX = 48;
 
 // スワイプとして扱う最小の水平移動量と、縦移動に対する比率。タップ・縦スクロール・
 // `.filters`の横スクロールの巻き込みを避けるため、水平方向の移動量を優先的に見る。
 export const SWIPE_MIN_DISTANCE_PX = 60;
 export const SWIPE_DIRECTION_RATIO = 1.5;
+
+// ドロワーの`touchmove`で「横方向のドラッグ」と確定させるまでの移動量（#123）。この量に
+// 達するまではタップ・縦スクロールと区別できないため`preventDefault()`を呼ばない。
+export const DIRECTION_LOCK_PX = 10;
