@@ -114,7 +114,29 @@ export async function getLatestWeeklyBrief(weekOffset: number, now = new Date())
   return job ? toView(job) : null;
 }
 
-// --- ジョブの取得（ポーラー向け） -------------------------------------------------------
+/** 解析状況画面（#137）に出す、待ち・実行中の総括1件。 */
+export type ActiveWeeklyBriefJob = { id: string; status: "QUEUED" | "RUNNING"; label: string; articleCount: number; queuedAt: Date; startedAt: Date | null; leaseExpiresAt: Date | null; workerHost: string | null };
+
+/** 待ち・実行中の総括。同じ週は同時に1本なので件数は多くならない。 */
+export async function listActiveWeeklyBriefJobs(): Promise<ActiveWeeklyBriefJob[]> {
+  const jobs = await prisma.weeklyBriefJob.findMany({
+    where: { status: { in: ["QUEUED", "RUNNING"] } },
+    orderBy: { queuedAt: "asc" },
+    select: { id: true, status: true, weekStart: true, weekEnd: true, articleIds: true, queuedAt: true, startedAt: true, leaseExpiresAt: true, workerHost: true },
+  });
+  return jobs.map((job) => ({
+    id: job.id,
+    status: job.status === "RUNNING" ? "RUNNING" : "QUEUED",
+    label: `${formatWeekLabel({ start: job.weekStart, end: job.weekEnd })} の週の総括`,
+    articleCount: toArticleIds(job.articleIds).length,
+    queuedAt: job.queuedAt,
+    startedAt: job.startedAt,
+    leaseExpiresAt: job.leaseExpiresAt,
+    workerHost: job.workerHost,
+  }));
+}
+
+// --- ジョブの取得（ポーラー向け）-------------------------------------------------------
 
 export type ClaimedBriefJob = { jobId: string; label: string; prompt: string; outputSchema: Record<string, unknown>; leaseExpiresAt: string };
 

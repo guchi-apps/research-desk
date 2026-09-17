@@ -151,6 +151,22 @@ pnpm exec prisma migrate deploy
 DATABASE_URL=... pnpm db:seed:ci   # seed-ci.mjs は Prisma CLI 経由ではないので明示的に渡す
 ```
 
+**DBと接続ユーザーは`sudo -n mysql`（unix_socket認証。パスワード入力なし）で作れる**（#137で確認）。
+`mysql -u guchi`は拒否される。パスワードはその場で`openssl rand -hex 16`で作り、`.env.local`
+（gitignore済み）にだけ書く。`127.0.0.1`で繋ぐため、ユーザーは`'localhost'`と`'127.0.0.1'`の両方に作る。
+
+```bash
+PW=$(openssl rand -hex 16)
+sudo -n mysql -e "CREATE DATABASE IF NOT EXISTS app_research_desk_dev CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+  CREATE USER IF NOT EXISTS 'research_desk_dev'@'localhost' IDENTIFIED BY '$PW';
+  CREATE USER IF NOT EXISTS 'research_desk_dev'@'127.0.0.1' IDENTIFIED BY '$PW';
+  GRANT ALL ON app_research_desk_dev.* TO 'research_desk_dev'@'localhost';
+  GRANT ALL ON app_research_desk_dev.* TO 'research_desk_dev'@'127.0.0.1';"
+```
+
+ユーザーが既にある（前回の検証で作った）場合は`CREATE USER IF NOT EXISTS`がパスワードを変えないので、
+`ALTER USER ... IDENTIFIED BY '$PW'`も続けて流す。
+
 ダミーの`DATABASE_URL`のままでも`requireInternalApiKey()`・入力検証までは到達できるため、
 **バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/dashboard`・
 `/dashboard/inbox`・`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
@@ -703,3 +719,27 @@ VPS常駐ポーラー**（`scripts/codex-analysis-worker.mjs`）が実行する�
 - 結果は1ジョブ1件なので別テーブルを作らず同じ行に持つ（`headline`・`overview`・`topics`）
 - 画面は総括が`QUEUED`／`RUNNING`の間だけ30秒ごとに`router.refresh()`する。**総括が無くても
   送信はできる**（その場合はメール本文からその節ごと落ちる）
+
+## 解析状況画面（`/dashboard/analysis`, #137）
+
+業界ニュース画面上部の「ChatGPT 解析」の帯（`AnalysisStatusStrip`）は、帯全体がこの画面への
+リンクになっている（解析状況画面自身に置くときだけ`linked={false}`でリンクにしない）。画面は
+`getAnalysisQueueDetail()`（`src/lib/article-analysis.ts`）の結果を、解析中・待ち・要対応・最近完了・
+実行環境・今日の実績に分けて出し、`AutoRefresh`（`router.refresh()`）で15秒ごとに読み直す。
+タブが裏にある間は読み直さない。
+
+- **待ちの並びはポーラーが実際に取る順にする**（`orderQueue()`、`src/lib/analysis-queue-view.ts`）。
+  `claimAnalysisJobs()`は記事を古い順に取り、余った枠でだけ週の総括（`WeeklyBriefJob`）を取るため、
+  積んだ時刻が早い総括でも、待っている記事の後ろへ回す。積んだ時刻の順に混ぜて並べると、
+  1番上の総括がいつまでも始まらないように見える
+- **「要対応」と帯の「失敗」「認証待ち」は、記事の最新状態（`IndustryInformation.analysisStatus`）で
+  数える。** #137より前の帯は`ArticleAnalysisJob`の`FAILED`の件数を数えていたため、再解析で直った
+  記事の過去の失敗まで積み上がり続けていた
+- **帯の「待ち」「実行中」は週の総括も含めて数える**（`briefQueued`・`briefRunning`を合算）。
+  `AnalysisOverview`の`queued`・`running`自体は記事の解析だけのまま残している——週報メール画面
+  （`NewsMailPanel`の`analysisQueue`）が「総括より先に走る記事の数」として使っているため
+- **期限切れの「解析中」はポーラー停止のサイン。** 期限切れのジョブを待ちへ戻す
+  `releaseExpiredLeases()`はポーラーの取得の中でしか呼ばれないため、期限を過ぎても`RUNNING`の
+  ままなのはポーラーが取りに来ていないときだけ。画面では「期限切れ（ポーラー停止の可能性）」と出す
+- 表示用の計算（経過時間・期限までの残り・JSTの今日0時など）はPrismaをimportしない
+  `src/lib/analysis-queue-view.ts`に置き、`node --test`で確かめている

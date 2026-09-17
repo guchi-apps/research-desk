@@ -73,6 +73,11 @@ export function formatElapsed(date: Date, now = new Date()): string {
 /** ポーラーが生きているとみなす猶予。これを過ぎたら画面で「停止中」と出す。 */
 export const WORKER_STALE_MINUTES = 15;
 
+/** ポーラーが止まっているか（未接続も含む）。帯と解析状況画面（#137）で同じ判定を使う。 */
+export function isWorkerStale(worker: { lastSeenAt: Date } | null, now = new Date()): boolean {
+  return !worker || now.getTime() - worker.lastSeenAt.getTime() > WORKER_STALE_MINUTES * 60_000;
+}
+
 /** `QUEUED`・`RUNNING`の間は二重実行を防ぐため「AI解析」を押せなくする。 */
 export function isAnalysisInFlight(status: JobStatusValue | null): boolean {
   return status === "QUEUED" || status === "RUNNING";

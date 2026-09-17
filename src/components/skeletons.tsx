@@ -151,3 +151,22 @@ export function SettingsSkeleton() {
     </section>
   );
 }
+
+// 解析状況画面（#137）。左に一覧のパネル、右に実行環境のパネルを置く実際の配置に寄せる。
+export function AnalysisStatusSkeleton() {
+  return (
+    <section className="content">
+      <HeaderSkeleton breadcrumb />
+      <Bar width="100%" height={42} className="sk-weeknav" />
+      <div className="q-grid">
+        <div className="q-col">
+          <div className="q-panel"><Bar width={90} height={16} /><Bar width="86%" /><Bar width="70%" /></div>
+          <div className="q-panel"><Bar width={90} height={16} /><Bar width="80%" /><Bar width="74%" /><Bar width="62%" /></div>
+        </div>
+        <div className="q-col">
+          <div className="q-panel"><Bar width={90} height={16} /><Bar width="100%" height={120} /></div>
+        </div>
+      </div>
+    </section>
+  );
+}

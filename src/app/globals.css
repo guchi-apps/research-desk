@@ -137,3 +137,28 @@ ul.history{margin:0;padding:0;display:flex;flex-direction:column}ul.history li{l
 .new-banner .sub{font-size:11px;margin:2px 0 0;color:#dff2ee}
 .new-banner .go{flex:none;font-size:11.5px;font-weight:700;background:rgba(255,255,255,.16);padding:7px 13px;border-radius:8px;white-space:nowrap}
 @media(max-width:767px){.new-banner{padding:12px 14px}.new-banner .sub{display:none}}
+
+/* 解析状況画面（#137）。帯（.codex-strip）はクリックで開けるようにし、画面は既存トークンと
+   `.chip`の状態色をそのまま使う。記事詳細の`.panel`・`dl.kv`とは余白・並びが違うため`q-`で分ける。 */
+.codex-strip .more{font-size:11px;font-weight:700;color:#fff;background:#31545a;padding:3px 10px;border-radius:99px;white-space:nowrap}
+a.codex-strip{text-decoration:none;transition:background .15s}a.codex-strip:hover{background:#244450}a.codex-strip:focus-visible{outline:2px solid #5fc9bb;outline-offset:2px}
+.q-refresh{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:6px;white-space:nowrap;font-variant-numeric:tabular-nums}.q-refresh i{width:6px;height:6px;border-radius:50%;background:var(--teal);animation:chip-pulse 1.6s ease-in-out infinite}
+.q-grid{display:grid;grid-template-columns:minmax(0,1fr) 290px;gap:18px;align-items:start}.q-col{display:flex;flex-direction:column;gap:16px;min-width:0}
+.q-panel{background:#fff;border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.q-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:10px;flex-wrap:wrap}.q-head h2{font-size:14px;margin:0;display:flex;align-items:center;gap:8px}.q-head small{font-size:11px;color:var(--muted)}
+.q-count{font-size:11px;font-weight:700;background:var(--teal-pale);color:var(--teal);padding:1px 8px;border-radius:99px;font-variant-numeric:tabular-nums}.q-count.warn{background:#fdece0;color:#b8541c}
+.chip.kind{background:#eef0f6;color:#46557a}
+.q-rows{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}
+.q-row{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:4px 12px;align-items:center;padding:11px 0;border-top:1px solid #edf1ef}.q-row:first-child{border-top:0}
+.q-mark{justify-self:center;padding:3px 6px}
+.q-pos{font-size:12px;font-weight:700;color:var(--muted);font-variant-numeric:tabular-nums;text-align:center}.q-pos.next{color:var(--teal)}
+.q-title{font-size:13px;font-weight:600;color:var(--ink);text-decoration:none;line-height:1.45;overflow-wrap:anywhere}a.q-title:hover{text-decoration:underline}
+.q-meta{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:4px 10px;flex-wrap:wrap;margin-top:2px}
+.q-side{display:flex;flex-direction:column;align-items:flex-end;gap:4px;font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}.q-side b{color:var(--ink)}
+.q-bar{grid-column:2 / -1;height:4px;border-radius:99px;background:#e6eeec;overflow:hidden}.q-bar b{display:block;height:100%;background:var(--teal);border-radius:99px}
+.q-fail{grid-column:2 / -1;font-size:11.5px;color:#9a4a1b;background:#fdf4ec;border-radius:7px;padding:5px 9px;margin:0;overflow-wrap:anywhere}
+.q-empty{font-size:12px;color:var(--muted);padding:6px 0;margin:0}.q-hint{font-size:11px;color:var(--muted);margin:10px 0 0;line-height:1.6}
+.q-kv{margin:0;display:flex;flex-direction:column}.q-kv div{display:flex;justify-content:space-between;gap:10px;padding:7px 0;border-top:1px solid #edf1ef;font-size:12px}.q-kv div:first-child{border-top:0}.q-kv dt{color:var(--muted);flex:none}.q-kv dd{margin:0;font-weight:600;text-align:right;font-variant-numeric:tabular-nums;overflow-wrap:anywhere;min-width:0}
+.q-ok{color:var(--teal)}.q-bad{color:#b8541c}
+@media(prefers-reduced-motion:reduce){.q-refresh i{animation:none}}
+@media(max-width:767px){.q-grid{grid-template-columns:minmax(0,1fr)}.q-panel{padding:14px}.q-row{grid-template-columns:26px minmax(0,1fr)}.q-side{grid-column:2;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px}.page-header .q-refresh{white-space:normal}}
