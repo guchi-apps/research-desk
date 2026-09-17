@@ -167,6 +167,12 @@ sudo -n mysql -e "CREATE DATABASE IF NOT EXISTS app_research_desk_dev CHARACTER 
 ユーザーが既にある（前回の検証で作った）場合は`CREATE USER IF NOT EXISTS`がパスワードを変えないので、
 `ALTER USER ... IDENTIFIED BY '$PW'`も続けて流す。
 
+**auto mode（`--permission-mode auto`）のセッションでは、`CREATE USER ... IDENTIFIED BY`・
+`ALTER USER ... IDENTIFIED BY`がauto modeの分類器に`Secret-Store Writes`として拒否される**
+（#154で確認）。ユーザーが既に居るがパスワードが分からない（worktreeをまたいで前回のセッションが
+作った等）場合、この手順でのDB確認は詰む。手作業モードへの切り替えを頼むか、確認方法を
+DBに依存しない形（コードレビュー・curlでの入力検証確認）に切り替える。
+
 ダミーの`DATABASE_URL`のままでも`requireInternalApiKey()`・入力検証までは到達できるため、
 **バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/dashboard`・
 `/dashboard/inbox`・`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
@@ -346,6 +352,16 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
   `TriageInbox`（クライアント）の`<form onChange>`にバブルしてくる`change`で件数を数え直す。
   選択状態をReactのstateで持たないのは、カードをサーバーコンポーネントのまま保つため。
   チェック中のカードの強調は`.news-card.triage:has(.pick input:checked)`（CSSのみ）
+- **「✓ 採用」ボタンで採用した記事のうち、まだ一度もAI解析していないもの（`analysisStatus`が
+  `null`）は、`setTriageDecision()`（`src/lib/article-analysis.ts`）が自動で解析ジョブも積む**
+  （#154）。採用した記事は週報の材料として扱われるため、「AI解析」ボタンを押し忘れたまま
+  週報を作る手戻りを防ぐ。既に解析済み・実行中・失敗済みの記事は対象外（再解析は従来どおり
+  手動の「再解析」ボタン）。「✓ 採用」ボタン（`TriageActions`）は新着記事画面
+  （1件・まとめての両方）だけでなく、業界ニュース画面（`/dashboard`。`ArticleAnalysisBlock`が
+  `ArticleAnalysisActions`経由で内包）・記事詳細画面にも出ており、どれも同じ
+  `POST /api/articles/triage`を経由するため、共通の保存関数に判定を寄せている。記事詳細
+  画面の「人による確定」フォーム（`AnalysisReviewForm`）経由の採用（`applyHumanReview()`）は
+  別の保存経路のため対象外
 
 ## アイコン・PWA起動画面・ログイン画面（#46）
 
@@ -452,6 +468,39 @@ AIDE側がマージされるまでエンドツーエンドの送信は動かな�
   「aide-bot」と「AIDE本体（Gmail送信等を持つ側）」を混同しないこと
 - 画像・ZIPはRoute Handler側でもメモリ上のFormDataのまま中継するだけで、ディスク・DBへは
   一切書き込んでいない（受け入れ条件「画像は送信後も保存されない」に対応）
+
+## 共有メニュー・ショートカットからの受け取り（#144）
+
+他のアプリから写真・記事を渡す受け口は`POST /api/share/inbox`の1つだけで、Androidの
+共有メニュー（manifestの`share_target`）とiPhoneのショートカットの両方がここを呼ぶ。
+ショートカットの作り方は[share-shortcut.md](share-shortcut.md)。
+
+- **iPhoneのホーム画面アプリはWeb Share Targetに対応していない**（2026-09時点）。manifestに
+  `share_target`を書いてもiPhoneの共有メニューには出ないため、ショートカットから同じ受け口を呼ぶ。
+  **ショートカットの「URLを開く」は必ずSafariで開く**（ホーム画面アプリを開く手段は無い）。
+  iOSではSafariとホーム画面アプリのCookieが別なので、Safariでもログインが要る
+- **写真はサーバーのメモリにだけ置く**（`src/lib/share-inbox.ts`）。ショートカットはページを開く前に
+  写真を送り終える必要があり、URLに載せるには大きすぎるため。#64の「保存しない」方針に合わせ、
+  ディスク・DBには書かず、画面が一度受け取るか10分経つと消す。上限は20枚・合計10MB・同時3件で、
+  **本番のNodeはヒープ128MB・320MBで再起動**（`deploy/ecosystem.config.js`）なのでこれ以上は
+  上げない。PM2がforkの1プロセスであることが前提で、複数プロセスにすると受け取ったプロセスと
+  読み出すプロセスが食い違う
+- **Service Workerは使わない**（#68の方針のまま）。`share_target`のPOSTはSWで受ける例が多いが、
+  サーバーのRoute Handlerが直接受けて303で画面へ飛ばしても動く。写真はメモリの置き場を経由するので、
+  ショートカットとAndroidで受け取り側（「画像を送る」）の処理が1つで済む
+- **認証は呼び出し元で分ける。** `Authorization`ヘッダーがあればショートカットとみなし、
+  `SHARE_SHORTCUT_TOKEN`（未設定なら503）で照合してJSONで`openUrl`を返す。無ければ共有メニューからの
+  ページ遷移とみなし、Supabaseのセッションで認証して303で飛ばす（未ログインは`/login`へ。送られた内容は
+  失われる）。トークンはスマホに置く値なので、AIDE・ポーラー用のシークレットとは分けている
+- 「画像を送る」は表示のたびに`GET /api/share/inbox`を一度呼ぶ。`?shared=`が無くても最新の1件を
+  拾うのは、Safariでログインし直してから開いた場合にも写真を読み込むため
+- **記事（URL）は「ニュースを送る」へ直接は流し込めない。** あの画面は週単位でDBの記事を選ぶ画面で、
+  URLの入力欄が無い。共有された記事は`/dashboard/share`で新着記事へ登録し（`src/lib/shared-article.ts`）、
+  「この記事だけ送る」で`/dashboard/news-mail?pick=<記事ID>`を開く。登録は自動収集の週あたり上限・
+  同一イベント統合を通さず、人が選んだ記事として「採用」（`reviewedAt`あり）で置き、AI解析を積む。
+  ページ本文は取得しない（解析は本文が無くても原典URLから判断する）
+- 文章だけの共有（URLを含まない）は、送り先が無いので案内だけ出す。メモをメールで送るにはAIDE側に
+  受け口が要る
 
 ## PWAアップデート通知（#68）
 
