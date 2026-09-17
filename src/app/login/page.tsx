@@ -11,10 +11,10 @@ export default function LoginPage() {
           <circle cx="380" cy="380" r="56" fill="#087f78" stroke="#1d3440" strokeWidth="14" />
         </svg>
         <p className="login-word">
-          research<span>·</span>desk
+          work<span>·</span>relay
         </p>
         <p className="login-lead">
-          決めた条件で自動収集しつつクリップを溜め、AIアプリに要約させて資料として書き出す個人用ツールです。
+          私用スマホで集めた業界ニュースや撮った写真を、社用PC・社用メールへ届ける個人用ツールです。
         </p>
         {/*
           ログイン開始はサーバー側のRoute Handlerへの素のリンクにする。onClickで

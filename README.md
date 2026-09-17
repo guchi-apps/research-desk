@@ -1,6 +1,9 @@
-# research-desk
+# research-desk（表示名: ワークリレー）
 
-決めた条件で自動収集しつつクリップを溜め、AIアプリ（Claude／ChatGPT）に要約させ、資料として書き出す個人用ツール
+私用スマホで集めた業界ニュースや撮った写真を、社用PC・社用メールへ届ける個人用ツール
+
+画面に出る名前は「ワークリレー（work·relay）」（#139）。URL・リポジトリ名・DB名・PM2のプロセス名・
+AIDE連携の識別子は`research-desk`のまま。
 
 - 公開URL: https://research-desk.gucchii.com/
 - 種別: Next.js + DB（本番ポート `3115`・PM2）

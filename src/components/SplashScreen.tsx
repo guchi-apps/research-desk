@@ -12,7 +12,7 @@ export default function SplashScreen({ label = "Loading" }: { label?: string }) 
       </svg>
       <div>
         <p className="splash-word">
-          research<span>·</span>desk
+          work<span>·</span>relay
         </p>
         <p className="splash-sub">{label}</p>
       </div>
