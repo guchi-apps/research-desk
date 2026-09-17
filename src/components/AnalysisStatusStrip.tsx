@@ -12,7 +12,8 @@ export const ANALYSIS_STATUS_PATH = "/dashboard/analysis";
  * ひと目で分かるようにする。APIキー認証へ切り替わっていたらここで警告する（Issueの
  * 「APIキー認証に切り替わっていないことを検知または明示できるようにする」に対応）。
  *
- * 帯全体が解析状況画面へのリンクになる（#137）。解析状況画面自身に置くときは`linked={false}`。
+ * 帯全体が解析状況画面へのリンクになる（#137）。待ち・実行中は、解析状況画面の一覧と数が合うよう
+ * 週の総括も含めて数える。解析状況画面自身に置くときは`linked={false}`。
  */
 export default function AnalysisStatusStrip({ overview, now = new Date(), linked = true }: { overview: AnalysisOverview; now?: Date; linked?: boolean }) {
   const worker = overview.worker;
@@ -31,7 +32,7 @@ export default function AnalysisStatusStrip({ overview, now = new Date(), linked
         {worker && stale ? "（停止中）" : ""}
       </span>
       <span className="queue">
-        待ち <b>{overview.queued}</b> 件　·　実行中 <b>{overview.running}</b> 件
+        待ち <b>{overview.queued + overview.briefQueued}</b> 件　·　実行中 <b>{overview.running + overview.briefRunning}</b> 件
         {overview.authRequired > 0 && <>　·　認証待ち <b>{overview.authRequired}</b> 件</>}
         {overview.failed > 0 && <>　·　失敗 <b>{overview.failed}</b> 件</>}
       </span>

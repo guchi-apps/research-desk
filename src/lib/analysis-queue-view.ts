@@ -36,11 +36,16 @@ export function formatSnapshotTime(date: Date): string {
   return `${month}/${day} ${formatClock(date)}:${String(seconds).padStart(2, "0")}`;
 }
 
-/** 「期限まで ◯分」。期限切れはポーラーが次の取得で積み直すため、その旨を返す。 */
+/**
+ * 「期限まで ◯分」。
+ *
+ * 期限切れのジョブを待ちへ戻すのはポーラーの取得（`claimAnalysisJobs()`）だけなので、期限を
+ * 過ぎても解析中のまま残っているのは、ポーラーが止まっている（取りに来ていない）ときに限られる。
+ */
 export function formatLeaseRemaining(leaseExpiresAt: Date | null, now: Date): string {
   if (!leaseExpiresAt) return "期限なし";
   const remaining = leaseExpiresAt.getTime() - now.getTime();
-  if (remaining <= 0) return "期限切れ（次の取得で積み直し）";
+  if (remaining <= 0) return "期限切れ（ポーラー停止の可能性）";
   return `期限まで ${Math.ceil(remaining / 60_000)}分`;
 }
 

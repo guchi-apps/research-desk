@@ -29,8 +29,13 @@ describe("formatLeaseRemaining", () => {
     assert.equal(formatLeaseRemaining(new Date("2026-09-17T05:10:30Z"), now), "期限まで 11分");
   });
 
-  it("期限を過ぎていたら積み直される旨を出す", () => {
-    assert.equal(formatLeaseRemaining(new Date("2026-09-17T04:59:00Z"), now), "期限切れ（次の取得で積み直し）");
+  it("期限を過ぎても解析中のまま残っていたら、ポーラーが止まっている可能性を出す", () => {
+    assert.equal(formatLeaseRemaining(new Date("2026-09-17T04:59:00Z"), now), "期限切れ（ポーラー停止の可能性）");
+    assert.equal(formatLeaseRemaining(now, now), "期限切れ（ポーラー停止の可能性）");
+  });
+
+  it("期限の記録が無いジョブは期限なしとして出す", () => {
+    assert.equal(formatLeaseRemaining(null, now), "期限なし");
   });
 });
 

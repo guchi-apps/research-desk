@@ -277,7 +277,11 @@ export async function setTriageDecision(articleIds: string[], adopt: boolean, re
 
 // --- 画面向けの取得 -------------------------------------------------------------------
 
-export type AnalysisOverview = { queued: number; running: number; failed: number; authRequired: number; worker: { host: string; lastSeenAt: Date; codexAuthMode: string | null; codexVersion: string | null; lastError: string | null } | null };
+/**
+ * `queued`・`running`は記事の解析だけの件数（週報メール画面が「総括より先に走る記事の数」として使う）。
+ * 週の総括の件数は`briefQueued`・`briefRunning`に分けて持ち、帯では合算して出す（#137）。
+ */
+export type AnalysisOverview = { queued: number; running: number; briefQueued: number; briefRunning: number; failed: number; authRequired: number; worker: { host: string; lastSeenAt: Date; codexAuthMode: string | null; codexVersion: string | null; lastError: string | null } | null };
 
 /**
  * 画面上部の実行環境ストリップに出す、キューの件数とポーラーの生存状況。
@@ -286,14 +290,16 @@ export type AnalysisOverview = { queued: number; running: number; failed: number
  * 再解析で直った記事の過去の失敗まで積み上がり続け、解析状況画面の「要対応」と数が合わない。
  */
 export async function getAnalysisOverview(): Promise<AnalysisOverview> {
-  const [jobs, articles, worker] = await Promise.all([
+  const [jobs, briefs, articles, worker] = await Promise.all([
     prisma.articleAnalysisJob.groupBy({ by: ["status"], _count: { _all: true }, where: { status: { in: ["QUEUED", "RUNNING"] } } }),
+    prisma.weeklyBriefJob.groupBy({ by: ["status"], _count: { _all: true }, where: { status: { in: ["QUEUED", "RUNNING"] } } }),
     prisma.industryInformation.groupBy({ by: ["analysisStatus"], _count: { _all: true }, where: { analysisStatus: { in: ["FAILED", "AUTH_REQUIRED"] } } }),
     prisma.analysisWorker.findFirst({ orderBy: { lastSeenAt: "desc" } }),
   ]);
   const jobCount = (status: JobStatusValue) => jobs.find((row) => row.status === status)?._count._all ?? 0;
+  const briefCount = (status: JobStatusValue) => briefs.find((row) => row.status === status)?._count._all ?? 0;
   const articleCount = (status: JobStatusValue) => articles.find((row) => row.analysisStatus === status)?._count._all ?? 0;
-  return { queued: jobCount("QUEUED"), running: jobCount("RUNNING"), failed: articleCount("FAILED"), authRequired: articleCount("AUTH_REQUIRED"), worker };
+  return { queued: jobCount("QUEUED"), running: jobCount("RUNNING"), briefQueued: briefCount("QUEUED"), briefRunning: briefCount("RUNNING"), failed: articleCount("FAILED"), authRequired: articleCount("AUTH_REQUIRED"), worker };
 }
 
 type QueueArticle = { id: string; title: string; business: "DELIVERY" | "LOCKER" };

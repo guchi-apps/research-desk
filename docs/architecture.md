@@ -734,7 +734,12 @@ VPS常駐ポーラー**（`scripts/codex-analysis-worker.mjs`）が実行する�
   1番上の総括がいつまでも始まらないように見える
 - **「要対応」と帯の「失敗」「認証待ち」は、記事の最新状態（`IndustryInformation.analysisStatus`）で
   数える。** #137より前の帯は`ArticleAnalysisJob`の`FAILED`の件数を数えていたため、再解析で直った
-  記事の過去の失敗まで積み上がり続けていた。待ち・実行中は従来どおりジョブの件数で、
-  帯の「待ち」は記事の解析だけ（週の総括は含まない）を数える
+  記事の過去の失敗まで積み上がり続けていた
+- **帯の「待ち」「実行中」は週の総括も含めて数える**（`briefQueued`・`briefRunning`を合算）。
+  `AnalysisOverview`の`queued`・`running`自体は記事の解析だけのまま残している——週報メール画面
+  （`NewsMailPanel`の`analysisQueue`）が「総括より先に走る記事の数」として使っているため
+- **期限切れの「解析中」はポーラー停止のサイン。** 期限切れのジョブを待ちへ戻す
+  `releaseExpiredLeases()`はポーラーの取得の中でしか呼ばれないため、期限を過ぎても`RUNNING`の
+  ままなのはポーラーが取りに来ていないときだけ。画面では「期限切れ（ポーラー停止の可能性）」と出す
 - 表示用の計算（経過時間・期限までの残り・JSTの今日0時など）はPrismaをimportしない
   `src/lib/analysis-queue-view.ts`に置き、`node --test`で確かめている
