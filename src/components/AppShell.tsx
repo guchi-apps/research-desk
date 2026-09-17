@@ -138,7 +138,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
       </div>
       <aside className="sidebar" onClick={closeIfLinkClicked}>
         <div className="brand">
-          research<span>·</span>desk
+          work<span>·</span>relay
         </div>
         <SidebarNav />
       </aside>
