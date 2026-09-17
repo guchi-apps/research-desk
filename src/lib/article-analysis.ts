@@ -268,10 +268,17 @@ export async function setWeeklyCandidate(articleId: string, weeklyCandidate: boo
  * 採用＝`weeklyCandidate: true`、不採用＝`false`で、どちらも人の判断なので`reviewedAt`を立てる。
  * 不採用は削除ではなく隠すだけ——行を消すとURLの一意制約も消え、翌日の自動収集が同じ記事を
  * 未判定として登録し直す。更新できた件数を返す（存在しないIDは数に入らない）。
+ *
+ * **採用に切り替える記事のうち、まだ一度もAI解析していないもの（`analysisStatus`が`null`）は
+ * ここで解析ジョブも積む（#154）。** 採用した記事は週報の材料として扱われるため、「AI解析」を
+ * 押し忘れたまま週報を作ってしまう手戻りを防ぐ。既に解析済み・実行中・失敗済みの記事は対象外
+ * （再解析は引き続き手動の「再解析」ボタンから行う）。
  */
 export async function setTriageDecision(articleIds: string[], adopt: boolean, reviewedBy: string, now = new Date()): Promise<number> {
   if (articleIds.length === 0) return 0;
+  const unanalyzed = adopt ? (await prisma.industryInformation.findMany({ where: { id: { in: articleIds }, analysisStatus: null }, select: { id: true } })).map((row) => row.id) : [];
   const updated = await prisma.industryInformation.updateMany({ where: { id: { in: articleIds } }, data: { weeklyCandidate: adopt, reviewedAt: now, reviewedBy } });
+  for (const articleId of unanalyzed) await enqueueAnalysisJob(articleId, reviewedBy);
   return updated.count;
 }
 
