@@ -40,6 +40,8 @@ type Props = {
   defaultSubjectBody: string;
   /** 記事解析のキューに残っている件数（`QUEUED`＋`RUNNING`）。総括の待ち順の目安に使う。 */
   analysisQueue: number;
+  /** `?pick=`で指定された記事（#144）。あればその記事だけにチェックを入れて始める。 */
+  pickedArticleId?: string | null;
 };
 
 type SendResult = { ok: true; articleCount: number; hasBrief: boolean } | { ok: false; message: string };
@@ -63,14 +65,14 @@ const BRIEF_POLL_MS = 30_000;
  * 一覧はチェックの状態でプレビューが変わるため、`TriageInbox`（#94）と違って選択状態を
  * Reactのstateで持つ。1週ぶんの記事は多くても数十件なので、この規模で問題にならない。
  */
-export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, weekEndIso, brief, defaultSubjectBody, analysisQueue }: Props) {
+export default function NewsMailPanel({ rows, weekOffset, basis, weekStartIso, weekEndIso, brief, defaultSubjectBody, analysisQueue, pickedArticleId = null }: Props) {
   const router = useRouter();
   const range = useMemo(() => ({ start: new Date(weekStartIso), end: new Date(weekEndIso) }), [weekStartIso, weekEndIso]);
   const adoptedIds = useMemo(() => rows.filter((row) => row.triage === "adopted").map((row) => row.article.id), [rows]);
 
   // 既定は「採用」にした記事だけにチェックを入れる。未判定・AIが対象外と判定した記事も
   // 一覧には出すが、チェックは外した状態から始める。
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(adoptedIds));
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(pickedArticleId ? [pickedArticleId] : adoptedIds));
   const [subjectBody, setSubjectBody] = useState(defaultSubjectBody);
   const [busy, setBusy] = useState<"analyze" | "brief" | "send" | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

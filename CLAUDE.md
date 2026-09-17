@@ -34,6 +34,9 @@ AIDE連携の識別子（`source: "research-desk"`等）は`research-desk`のま
 `deploy/ecosystem.config.js`に居る。**`ecosystem.config.js`へアプリを足したら`deploy.yml`の
 `pm2 delete`にも名前を足すこと**——`pm2 start`は既に居る同名プロセスを置き換えないため、
 足し忘れると**そのプロセスだけ古い配布物のまま動き続ける**（デプロイは成功する）。
+**Next.js本体は1プロセス（fork）のままにする**（#144）。共有された写真はそのプロセスのメモリに
+一時的に置いており（`src/lib/share-inbox.ts`）、`instances`を増やすと受け取ったプロセスと読み出す
+プロセスが食い違って写真が消える。
 
 ## 出力言語
 

@@ -4,6 +4,21 @@ import { useEffect, useRef, useState } from "react";
 import { MAX_ZIP_SIZE_BYTES, WIDTH_PRESETS, buildImageMailZip, type ImageMailZipResult, type WidthPreset } from "@/lib/image-mail-client";
 
 type WidthMode = "auto" | WidthPreset;
+type ShareNotice = { kind: "received"; count: number } | { kind: "error"; message: string };
+
+const SHARE_ERROR_MESSAGES: Record<string, string> = {
+  no_files: "共有された内容に写真が含まれていませんでした。",
+  too_many_files: "一度に共有できる写真は20枚までです。枚数を減らしてもう一度共有してください。",
+  too_large: "共有された写真の合計が10MBを超えていました。枚数を減らしてもう一度共有してください。",
+  not_image: "写真以外のファイルは受け取れません。",
+};
+
+type Props = {
+  /** ショートカット・共有メニューから開いたときの受け取り番号（`?shared=`）。 */
+  sharedId: string | null;
+  /** 共有の受け口で断ったときの理由（`?shareError=`）。 */
+  shareError: string | null;
+};
 type SendResult = { ok: true; messageId?: string } | { ok: false; message: string };
 
 interface SelectedImage {
@@ -18,7 +33,7 @@ function formatBytes(bytes: number): string {
 
 // PC/スマホ問わず同じ<input>から起動する。`capture="environment"`は対応端末でだけ
 // 背面カメラを直接開き、非対応環境では通常のファイル選択にフォールバックする。
-export default function ImageMailPanel() {
+export default function ImageMailPanel({ sharedId, shareError }: Props) {
   const [title, setTitle] = useState("");
   const [images, setImages] = useState<SelectedImage[]>([]);
   const [widthMode, setWidthMode] = useState<WidthMode>("auto");
@@ -29,6 +44,8 @@ export default function ImageMailPanel() {
   const [sending, setSending] = useState(false);
   const [sendResult, setSendResult] = useState<SendResult | null>(null);
 
+  const [shareNotice, setShareNotice] = useState<ShareNotice | null>(shareError ? { kind: "error", message: SHARE_ERROR_MESSAGES[shareError] ?? "共有された写真を受け取れませんでした。" } : null);
+
   const captureInputRef = useRef<HTMLInputElement>(null);
   const pickInputRef = useRef<HTMLInputElement>(null);
 
@@ -38,6 +55,41 @@ export default function ImageMailPanel() {
     };
   }, [images]);
 
+  // 共有された写真（#144）はサーバーのメモリに一時的に置かれている。受け取ると向こうからは消える。
+  // `?shared=`が無くても問い合わせるのは、ログインし直してから開いた場合にも拾うため。
+  // 一度受け取ると二度目は204になるので、開発時のStrictModeでエフェクトが2回走っても
+  // 問い合わせは1回に限る（中断もしない。1回目の結果を捨てると写真が失われる）。
+  const shareFetchedRef = useRef(false);
+  useEffect(() => {
+    if (shareFetchedRef.current) return;
+    shareFetchedRef.current = true;
+    const query = sharedId ? `?id=${encodeURIComponent(sharedId)}` : "";
+    (async () => {
+      try {
+        const response = await fetch(`/api/share/inbox${query}`, { cache: "no-store" });
+        if (response.status === 204) {
+          if (sharedId) setShareNotice({ kind: "error", message: "共有された写真が見つかりませんでした。受け取りから10分以上経ったか、すでに読み込み済みです。もう一度共有してください。" });
+          return;
+        }
+        if (!response.ok) return;
+        const form = await response.formData();
+        const files = form.getAll("files").filter((value): value is File => value instanceof File);
+        const sharedTitle = form.get("title");
+        if (files.length === 0) return;
+        addFiles(files);
+        if (typeof sharedTitle === "string" && sharedTitle) setTitle((current) => current || sharedTitle);
+        setShareNotice({ kind: "received", count: files.length });
+      } catch {
+        if (sharedId) setShareNotice({ kind: "error", message: "共有された写真の読み込みに失敗しました。もう一度共有してください。" });
+      } finally {
+        // 再読み込みで同じ番号を問い合わせ直さないよう、アドレスバーからクエリを外す。
+        if (sharedId || shareError) window.history.replaceState(null, "", window.location.pathname);
+      }
+    })();
+    // 表示時に一度だけ問い合わせる。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function resetOutcome() {
     setBuildResult(null);
     setBuildError(null);
@@ -45,7 +97,7 @@ export default function ImageMailPanel() {
     setSendResult(null);
   }
 
-  function addFiles(fileList: FileList | null) {
+  function addFiles(fileList: FileList | File[] | null) {
     if (!fileList || fileList.length === 0) return;
     const added = Array.from(fileList).map((file) => ({ id: crypto.randomUUID(), file, previewUrl: URL.createObjectURL(file) }));
     setImages((current) => [...current, ...added]);
@@ -111,6 +163,23 @@ export default function ImageMailPanel() {
   const canSend = !sending && buildResult !== null && !zipTooLarge;
 
   return (
+    <>
+    {shareNotice && (
+      shareNotice.kind === "received" ? (
+        <div className="share-received" role="status">
+          <span className="share-received-mark" aria-hidden="true">📥</span>
+          <div>
+            <p>共有から写真を{shareNotice.count}枚受け取りました</p>
+            <small>受け取った写真はサーバーの一時領域から消しました</small>
+          </div>
+        </div>
+      ) : (
+        <div className="share-received error" role="alert">
+          <span className="share-received-mark" aria-hidden="true">!</span>
+          <div><p>{shareNotice.message}</p></div>
+        </div>
+      )
+    )}
     <div className="imgmail-card">
       <div className="imgmail-block">
         <div className="imgmail-block-head"><h2>写真タイトル</h2></div>
@@ -196,5 +265,6 @@ export default function ImageMailPanel() {
 
       <p className="helper">600pxでも2MBを超える場合は送信できません。画像を減らしてお試しください。</p>
     </div>
+    </>
   );
 }
