@@ -162,3 +162,25 @@ a.codex-strip{text-decoration:none;transition:background .15s}a.codex-strip:hove
 .q-ok{color:var(--teal)}.q-bad{color:#b8541c}
 @media(prefers-reduced-motion:reduce){.q-refresh i{animation:none}}
 @media(max-width:767px){.q-grid{grid-template-columns:minmax(0,1fr)}.q-panel{padding:14px}.q-row{grid-template-columns:26px minmax(0,1fr)}.q-side{grid-column:2;flex-direction:row;align-items:center;justify-content:flex-start;gap:8px}.page-header .q-refresh{white-space:normal}}
+.share-card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:22px 24px;display:flex;flex-direction:column;gap:20px;max-width:640px}
+.share-source{display:flex;gap:12px;align-items:flex-start;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--paper);min-width:0}
+.share-source>div:last-child{min-width:0}
+.share-source b{display:block;font-size:12.5px;line-height:1.45}
+.share-source a{font-size:11.5px;color:var(--teal);overflow-wrap:anywhere;text-decoration:none}
+.share-source p{margin:6px 0 0;font-size:12px;color:var(--muted);line-height:1.55;white-space:pre-wrap}
+.share-favicon{width:34px;height:34px;border-radius:8px;background:var(--navy);color:#70d6bf;display:grid;place-items:center;font-weight:800;font-size:13px;flex:none}
+.share-text{margin:0;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--paper);font-size:12.5px;line-height:1.6;white-space:pre-wrap;overflow-wrap:anywhere}
+.share-note{display:flex;gap:10px;align-items:flex-start;background:#fff6ea;border:1px solid #f0d3a8;border-radius:10px;padding:10px 12px;font-size:12px}
+.share-note p{margin:0;line-height:1.6}
+.share-note-mark{width:20px;height:20px;border-radius:50%;background:var(--orange);color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800;flex:none}
+.share-chip{font-size:10px;font-weight:700;padding:3px 9px;border-radius:99px;background:var(--teal-pale);color:var(--teal);white-space:nowrap}
+.share-actions{display:flex;flex-direction:column;gap:8px}
+.share-card .segmented button.active{color:#fff}
+.share-received{display:flex;gap:10px;align-items:center;background:var(--teal-pale);border:1px solid #bfe2da;border-radius:10px;padding:10px 14px;margin-bottom:14px;max-width:640px}
+.share-received p{margin:0;font-size:12.5px;font-weight:700;color:#0b5852}
+.share-received small{color:#3b7a73;font-size:10.5px}
+.share-received-mark{font-size:15px;flex:none}
+.share-received.error{background:#fdece0;border-color:#f0c39a}
+.share-received.error p{color:#8a3a12;font-weight:600}
+.share-received.error .share-received-mark{width:20px;height:20px;border-radius:50%;background:#b8541c;color:#fff;display:grid;place-items:center;font-size:11px;font-weight:800}
+@media(max-width:767px){.share-card{padding:16px;max-width:none;gap:16px}}

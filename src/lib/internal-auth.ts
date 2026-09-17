@@ -26,6 +26,16 @@ export function requireAnalysisWorkerSecret(request: Request): NextResponse | nu
   return requireBearerSecret(request, process.env.ANALYSIS_WORKER_SECRET, "analysis_worker_not_configured");
 }
 
+/**
+ * iPhoneのショートカットが写真を送る`POST /api/share/inbox`の認証（#144）。
+ *
+ * ショートカットはSupabaseのセッションを持てないため、スマホに置く専用のトークンで守る。
+ * スマホに置く値なので、AIDE・ポーラー用のシークレットとは分けて、これだけを失効できるようにする。
+ */
+export function requireShareShortcutToken(request: Request): NextResponse | null {
+  return requireBearerSecret(request, process.env.SHARE_SHORTCUT_TOKEN, "share_shortcut_not_configured");
+}
+
 function requireBearerSecret(request: Request, expected: string | undefined, notConfiguredError: string): NextResponse | null {
   // 未設定を「素通り」にはしない。設定漏れがそのまま認証なしの公開に化けるのを防ぐ。
   if (!expected) {

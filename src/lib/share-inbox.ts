@@ -1,0 +1,164 @@
+/**
+ * 共有された写真の一時置き場と、共有内容の振り分け（#144）。
+ *
+ * iPhoneのホーム画面アプリはWeb Share Targetに対応していないため、ショートカットが写真を
+ * `POST /api/share/inbox`へ送り、Safariで「画像を送る」を開く。開いた画面が写真を受け取るまでの
+ * 間だけ、**このプロセスのメモリに置く**（ディスク・DBには書かない。#64の方針）。
+ * 画面が一度受け取るか`SHARE_INBOX_TTL_MS`を過ぎた時点で消す。再起動でも消える。
+ *
+ * 本番はPM2のforkモード1プロセス（`deploy/ecosystem.config.js`）なので、受け取ったプロセスと
+ * 読み出すプロセスが同じになる。複数プロセスにする場合はこの置き場ごと見直すこと。
+ *
+ * Prismaをimportしないため`node --test`から直接読める。
+ */
+
+import { getWeekRange, isWithinWeek, OLDEST_WEEK_OFFSET } from "./jst-week.ts";
+
+export const SHARE_INBOX_TTL_MS = 10 * 60 * 1000;
+export const SHARE_INBOX_MAX_FILES = 20;
+/** 1件あたりの合計。本番のNodeはヒープ128MB・320MBで再起動なので、置けるのは数件ぶんまで。 */
+export const SHARE_INBOX_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+/** 同時に置いておく件数。超えたら古いものから捨てる。 */
+export const SHARE_INBOX_MAX_ENTRIES = 3;
+export const SHARE_TITLE_MAX_LENGTH = 200;
+
+export type SharedFile = { name: string; type: string; data: Uint8Array };
+export type ShareInboxEntry = { id: string; title: string; files: SharedFile[]; createdAt: number };
+
+type Store = Map<string, ShareInboxEntry>;
+
+// 開発サーバーのHMRでモジュールが読み直されても置き場が消えないよう、globalThisに持つ。
+const globalStore = globalThis as unknown as { __shareInbox?: Store };
+
+export function getShareInboxStore(): Store {
+  globalStore.__shareInbox ??= new Map();
+  return globalStore.__shareInbox;
+}
+
+export function pruneExpired(store: Store, now: number): void {
+  for (const [id, entry] of store) {
+    if (now - entry.createdAt > SHARE_INBOX_TTL_MS) store.delete(id);
+  }
+}
+
+export type PutResult = { ok: true; id: string } | { ok: false; reason: "no_files" | "too_many_files" | "too_large" | "not_image" };
+
+export function validateSharedFiles(files: SharedFile[]): Exclude<PutResult, { ok: true }> | null {
+  if (files.length === 0) return { ok: false, reason: "no_files" };
+  if (files.length > SHARE_INBOX_MAX_FILES) return { ok: false, reason: "too_many_files" };
+  if (files.some((file) => !file.type.startsWith("image/"))) return { ok: false, reason: "not_image" };
+  const total = files.reduce((sum, file) => sum + file.data.byteLength, 0);
+  if (total > SHARE_INBOX_MAX_TOTAL_BYTES) return { ok: false, reason: "too_large" };
+  return null;
+}
+
+export function putShareEntry(store: Store, input: { title: string; files: SharedFile[] }, now: number, id: string = crypto.randomUUID()): PutResult {
+  const invalid = validateSharedFiles(input.files);
+  if (invalid) return invalid;
+  pruneExpired(store, now);
+  // Mapは挿入順を保つので、先頭が一番古い。
+  while (store.size >= SHARE_INBOX_MAX_ENTRIES) {
+    const oldest = store.keys().next().value;
+    if (oldest === undefined) break;
+    store.delete(oldest);
+  }
+  store.set(id, { id, title: input.title.trim().slice(0, SHARE_TITLE_MAX_LENGTH), files: input.files, createdAt: now });
+  return { ok: true, id };
+}
+
+/** 一度だけ取り出す。取り出したら置き場から消す。`id`がnullなら一番新しいもの。 */
+export function takeShareEntry(store: Store, id: string | null, now: number): ShareInboxEntry | null {
+  pruneExpired(store, now);
+  let entry: ShareInboxEntry | undefined;
+  if (id) {
+    entry = store.get(id);
+  } else {
+    for (const candidate of store.values()) entry = candidate;
+  }
+  if (!entry) return null;
+  store.delete(entry.id);
+  return entry;
+}
+
+export function hasPendingShare(store: Store, now: number): boolean {
+  pruneExpired(store, now);
+  return store.size > 0;
+}
+
+// --- 共有内容の振り分け ---------------------------------------------------------------
+
+const URL_PATTERN = /https?:\/\/[^\s<>"'「」『』（）()]+/i;
+
+/** 文章の中から最初のURLを取り出す。Androidの共有は`url`を空にして`text`へURLを入れることが多い。 */
+export function extractUrl(text: string | null | undefined): string | null {
+  if (!text) return null;
+  const match = text.match(URL_PATTERN);
+  if (!match) return null;
+  const candidate = match[0].replace(/[.,、。!！?？]+$/, "");
+  return isHttpUrl(candidate) ? candidate : null;
+}
+
+export function isHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export type SharedText = { title: string; text: string; url: string | null };
+
+/**
+ * 共有された`title`・`text`・`url`を整える。URLは`url`を優先し、無ければ`text`から拾う。
+ * `text`からURLを拾ったときは、`text`からそのURLを取り除いた残りを文章として扱う。
+ */
+export function normalizeSharedText(input: { title?: string | null; text?: string | null; url?: string | null }): SharedText {
+  const title = (input.title ?? "").trim();
+  let text = (input.text ?? "").trim();
+  const rawUrl = (input.url ?? "").trim();
+  let url = rawUrl && isHttpUrl(rawUrl) ? rawUrl : null;
+  if (!url) {
+    url = extractUrl(text);
+    if (url) text = text.replace(url, "").trim();
+  } else if (text === url) {
+    text = "";
+  }
+  return { title: title.slice(0, SHARE_TITLE_MAX_LENGTH), text, url };
+}
+
+/** 共有された記事画面のURL。ショートカット「ワークリレーへ記事」からも同じ形で開く。 */
+export function buildSharePagePath(shared: SharedText): string {
+  const params = new URLSearchParams();
+  if (shared.url) params.set("url", shared.url);
+  if (shared.title) params.set("title", shared.title);
+  if (shared.text) params.set("text", shared.text.slice(0, 1000));
+  const query = params.toString();
+  return query ? `/dashboard/share?${query}` : "/dashboard/share";
+}
+
+/** 記事のタイトルが無いときの代わり。共有された文章の1行目か、URLのホスト名。 */
+export function fallbackArticleTitle(shared: SharedText): string {
+  if (shared.title) return shared.title;
+  const firstLine = shared.text.split(/\r?\n/)[0]?.trim();
+  if (firstLine) return firstLine.slice(0, SHARE_TITLE_MAX_LENGTH);
+  if (shared.url) return new URL(shared.url).hostname;
+  return "";
+}
+
+/**
+ * 「この記事だけ送る」の行き先。記事が入っている週（公開日、無ければ取得日）の「ニュースを送る」を、
+ * その記事だけにチェックを入れて開く。週送りで遡れる範囲より古ければ今週にする。
+ * 仕分けの絞り込みは「すべて」にする——登録済みの記事が不採用になっていても一覧から消さないため。
+ */
+export function buildNewsMailPickPath(articleId: string, referenceDate: Date, now: Date): string {
+  let week = 0;
+  for (let offset = 0; offset >= OLDEST_WEEK_OFFSET; offset--) {
+    if (isWithinWeek(referenceDate, getWeekRange(offset, now))) {
+      week = offset;
+      break;
+    }
+  }
+  const params = new URLSearchParams({ week: String(week), basis: "either", triage: "all", pick: articleId });
+  return `/dashboard/news-mail?${params.toString()}`;
+}

@@ -54,6 +54,8 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
   const importance: ImportanceParam = params.importance === "high" || params.importance === "medium" || params.importance === "reference" ? params.importance : "all";
   const triage: MailTriageParam = parseMailTriageParam(params.triage);
   const keyword = typeof params.keyword === "string" ? params.keyword.trim() : "";
+  // 共有された記事画面の「この記事だけ送る」（#144）。その記事だけにチェックを入れて開く。
+  const pick = typeof params.pick === "string" && params.pick ? params.pick : null;
 
   const range = getWeekRange(weekOffset);
   const [items, brief, overview] = await Promise.all([
@@ -64,6 +66,8 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
 
   const rows: NewsMailRow[] = items.map((item) => ({ article: toNewsMailArticleDto(item), triage: getTriageState(item) }));
   const adoptedCount = rows.filter((row) => row.triage === "adopted").length;
+  // 指定された記事がこの週・この絞り込みの一覧に無ければ、いつもどおり採用した記事から始める。
+  const pickedArticleId = pick && rows.some((row) => row.article.id === pick) ? pick : null;
   const collectedOnlyCount = rows.filter((row) => isCollectedOnly(toNewsMailArticle(row.article), range)).length;
 
   const query = (overrides: { week?: number; basis?: WeekBasisParam }) => {
@@ -167,8 +171,9 @@ export default async function NewsMailPage({ searchParams }: { searchParams: Pro
         weekStartIso={range.start.toISOString()}
         weekEndIso={range.end.toISOString()}
         brief={brief ? { status: brief.status, headline: brief.headline, overview: brief.overview, topics: brief.topics, failureMessage: brief.failureMessage } : null}
-        defaultSubjectBody={defaultSubjectBody(range, adoptedCount || rows.length)}
+        defaultSubjectBody={defaultSubjectBody(range, pickedArticleId ? 1 : adoptedCount || rows.length)}
         analysisQueue={overview.queued + overview.running}
+        pickedArticleId={pickedArticleId}
       />
 
       <p className="note">
