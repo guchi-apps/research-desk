@@ -167,6 +167,12 @@ sudo -n mysql -e "CREATE DATABASE IF NOT EXISTS app_research_desk_dev CHARACTER 
 ユーザーが既にある（前回の検証で作った）場合は`CREATE USER IF NOT EXISTS`がパスワードを変えないので、
 `ALTER USER ... IDENTIFIED BY '$PW'`も続けて流す。
 
+**auto mode（`--permission-mode auto`）のセッションでは、`CREATE USER ... IDENTIFIED BY`・
+`ALTER USER ... IDENTIFIED BY`がauto modeの分類器に`Secret-Store Writes`として拒否される**
+（#154で確認）。ユーザーが既に居るがパスワードが分からない（worktreeをまたいで前回のセッションが
+作った等）場合、この手順でのDB確認は詰む。手作業モードへの切り替えを頼むか、確認方法を
+DBに依存しない形（コードレビュー・curlでの入力検証確認）に切り替える。
+
 ダミーの`DATABASE_URL`のままでも`requireInternalApiKey()`・入力検証までは到達できるため、
 **バリデーションの単体的な挙動はcurlだけで確認できる**。Prismaを呼ぶ画面（`/dashboard`・
 `/dashboard/inbox`・`/dashboard/news-mail`）は`PrismaClientInitializationError`が`loading.tsx`のSuspense境界内で
