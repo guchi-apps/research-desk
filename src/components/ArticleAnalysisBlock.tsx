@@ -36,7 +36,7 @@ export default function ArticleAnalysisBlock({ item }: { item: IndustryInformati
         <span className={`chip ${TRIAGE_CLASS[triage]}`}>{TRIAGE_LABELS[triage]}</span>
         <ArticleAnalysisActions articleId={item.id} status={status} triage={triage} />
       </div>
-      {analysis && <p className="ai-reason">判定理由: {analysis.reason}</p>}
+      {analysis && <p className="ai-reason">判定理由: {analysis.relevance === "OUT_OF_SCOPE" ? (analysis.noiseReason ?? analysis.reason) : analysis.reason}</p>}
       {job && (status === "FAILED" || status === "AUTH_REQUIRED") && (
         <p className={`ai-hint ${status === "FAILED" ? "fail" : ""}`}>
           {job.failureKind ? FAILURE_KIND_LABELS[job.failureKind] : "解析に失敗しました"}

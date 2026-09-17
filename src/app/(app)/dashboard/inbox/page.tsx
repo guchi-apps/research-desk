@@ -32,6 +32,9 @@ const emptyMessages: Record<TriageParam, string> = {
  * 新着記事のカード（#94で仕分け用に変更）。左のチェックはまとめて仕分けるバー（`TriageInbox`）が
  * 数え、右下のボタンは1件ずつ採用／不採用にする。AIが対象外と判定した記事は破線のカードで
  * 判定理由まで出し、人はその判定を確認するだけで済むようにする。
+ *
+ * AI解析の状態表示・「AI解析」ボタンは業界ニュース画面（`/dashboard`）と共通の
+ * `ArticleAnalysisBlock`をそのまま使う（#136。手書きで二重管理しない）。
  */
 function RecentCard({ item }: { item: IndustryInformationListItem }) {
   const tags = toStringArray(item.tags);
