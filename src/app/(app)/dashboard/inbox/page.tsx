@@ -1,12 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import ArticleAnalysisBlock from "@/components/ArticleAnalysisBlock";
 import HeaderUserMenu from "@/components/HeaderUserMenu";
-import TriageActions from "@/components/TriageActions";
 import TriageInbox from "@/components/TriageInbox";
-import { ANALYSIS_STATUS_CLASS, ANALYSIS_STATUS_LABELS, formatConfidence, RELEVANCE_LABELS } from "@/lib/analysis-display";
 import { getCurrentUser } from "@/lib/auth";
 import { countTriage, formatDate, getRecencyLabel, listRecentIndustryInformation, toStringArray, type IndustryInformationListItem, type RecencyLabel } from "@/lib/industry-information";
-import { getTriageState, parseTriageParam, TRIAGE_CLASS, TRIAGE_LABELS, TRIAGE_PARAMS, type TriageParam } from "@/lib/triage";
+import { getTriageState, parseTriageParam, TRIAGE_PARAMS, type TriageParam } from "@/lib/triage";
 
 // 新着記事は日次収集・AIDE経由の週報登録で登録され次第この画面に出る。
 // 仕分け（採用／不採用）を押した直後に古い内容を返さないよう、毎リクエストでDBを読む。
@@ -33,12 +32,13 @@ const emptyMessages: Record<TriageParam, string> = {
  * 新着記事のカード（#94で仕分け用に変更）。左のチェックはまとめて仕分けるバー（`TriageInbox`）が
  * 数え、右下のボタンは1件ずつ採用／不採用にする。AIが対象外と判定した記事は破線のカードで
  * 判定理由まで出し、人はその判定を確認するだけで済むようにする。
+ *
+ * AI解析の状態表示・「AI解析」ボタンは業界ニュース画面（`/dashboard`）と共通の
+ * `ArticleAnalysisBlock`をそのまま使う（#136。手書きで二重管理しない）。
  */
 function RecentCard({ item }: { item: IndustryInformationListItem }) {
   const tags = toStringArray(item.tags);
   const state = getTriageState(item);
-  const analysis = item.analyses[0] ?? null;
-  const status = item.analysisStatus;
   const hidden = state === "rejected" || state === "ai_rejected";
   return <article className={`news-card triage ${hidden ? "out-of-scope" : ""}`}>
     <label className="pick"><input type="checkbox" name="ids" value={item.id} aria-label={`「${item.title}」を選択`} /></label>
@@ -46,17 +46,7 @@ function RecentCard({ item }: { item: IndustryInformationListItem }) {
       <div className="biz"><i className={item.business === "LOCKER" ? "orange" : ""} />{labels[item.business]}</div>
       <div className="news-head"><div><h3>{item.title}</h3><p className="meta">{formatDate(item.publishedAt ?? item.occurredAt ?? item.collectedAt)}　·　{item.sourceName}　·　{item.isPrimarySource ? "一次情報" : "関連記事"}</p></div><span className={`badge ${item.importance === "HIGH" ? "high" : ""}`}>重要度 {importanceLabels[item.importance]}</span></div>
       <p className="summary">{item.summary ?? "要約は登録されていません。"}</p>
-      <div className="ai-block">
-        <div className="ai-row">
-          <span className="ai-label">AI解析</span>
-          {status === null ? <span className="chip queued">未解析</span> : <span className={`chip ${ANALYSIS_STATUS_CLASS[status]}`}><i className="dot" />{ANALYSIS_STATUS_LABELS[status]}</span>}
-          {analysis && (analysis.relevance === "OUT_OF_SCOPE" ? <span className="chip outscope">対象外</span> : <span className="verdict">{RELEVANCE_LABELS[analysis.relevance]}</span>)}
-          {analysis && <span className="conf">信頼度 {formatConfidence(analysis.confidence)}</span>}
-          {state !== "pending" && <span className={`chip ${TRIAGE_CLASS[state]}`}>{TRIAGE_LABELS[state]}</span>}
-          <TriageActions articleId={item.id} state={state} />
-        </div>
-        {analysis?.relevance === "OUT_OF_SCOPE" && <p className="ai-reason">判定理由: {analysis.noiseReason ?? analysis.reason}</p>}
-      </div>
+      <ArticleAnalysisBlock item={item} />
       <div className="news-foot"><div className="tags">{item.targetCompany && <b>{item.targetCompany}</b>}{tags.map((tag) => <span key={tag}>{tag}</span>)}</div><a href={item.originalUrl} target="_blank" rel="noreferrer">元記事 ↗</a></div>
     </div>
   </article>;
