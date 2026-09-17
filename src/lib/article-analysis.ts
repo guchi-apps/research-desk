@@ -1,7 +1,7 @@
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canAcceptReport, classifyFailure, FAILURE_MESSAGE_LIMIT, isDuplicateJobError, LEASE_SECONDS, MAX_CLAIM_JOBS, shouldAutoExcludeFromWeekly, truncateFailureMessage, type FailureKindValue, type FailureSignal, type JobStatusValue } from "@/lib/analysis-job-rules";
-import { claimWeeklyBriefJobs, releaseExpiredWeeklyBriefLeases, reportWeeklyBriefResult } from "@/lib/weekly-brief";
+import { claimWeeklyBriefJobs, listActiveWeeklyBriefJobs, releaseExpiredWeeklyBriefLeases, reportWeeklyBriefResult } from "@/lib/weekly-brief";
 import { buildAnalysisPrompt, buildOutputSchema, parseAnalysisPayload, parseAnnouncedOn, type AnalysisImportanceValue, type AnalysisPeerArticle, type AnalysisRelevanceValue } from "@/lib/analysis-prompt";
 import { getWeekRange, weekCondition } from "@/lib/industry-information";
 
@@ -277,16 +277,109 @@ export async function setTriageDecision(articleIds: string[], adopt: boolean, re
 
 // --- 画面向けの取得 -------------------------------------------------------------------
 
-export type AnalysisOverview = { queued: number; running: number; failed: number; authRequired: number; worker: { host: string; lastSeenAt: Date; codexAuthMode: string | null; codexVersion: string | null; lastError: string | null } | null };
+/**
+ * `queued`・`running`は記事の解析だけの件数（週報メール画面が「総括より先に走る記事の数」として使う）。
+ * 週の総括の件数は`briefQueued`・`briefRunning`に分けて持ち、帯では合算して出す（#137）。
+ */
+export type AnalysisOverview = { queued: number; running: number; briefQueued: number; briefRunning: number; failed: number; authRequired: number; worker: { host: string; lastSeenAt: Date; codexAuthMode: string | null; codexVersion: string | null; lastError: string | null } | null };
 
-/** 画面上部の実行環境ストリップに出す、キューの件数とポーラーの生存状況。 */
+/**
+ * 画面上部の実行環境ストリップに出す、キューの件数とポーラーの生存状況。
+ *
+ * 失敗・認証待ちは**記事の最新状態**（`analysisStatus`）で数える（#137）。ジョブの件数で数えると、
+ * 再解析で直った記事の過去の失敗まで積み上がり続け、解析状況画面の「要対応」と数が合わない。
+ */
 export async function getAnalysisOverview(): Promise<AnalysisOverview> {
-  const [grouped, worker] = await Promise.all([
-    prisma.articleAnalysisJob.groupBy({ by: ["status"], _count: { _all: true }, where: { status: { in: ["QUEUED", "RUNNING", "FAILED", "AUTH_REQUIRED"] } } }),
+  const [jobs, briefs, articles, worker] = await Promise.all([
+    prisma.articleAnalysisJob.groupBy({ by: ["status"], _count: { _all: true }, where: { status: { in: ["QUEUED", "RUNNING"] } } }),
+    prisma.weeklyBriefJob.groupBy({ by: ["status"], _count: { _all: true }, where: { status: { in: ["QUEUED", "RUNNING"] } } }),
+    prisma.industryInformation.groupBy({ by: ["analysisStatus"], _count: { _all: true }, where: { analysisStatus: { in: ["FAILED", "AUTH_REQUIRED"] } } }),
     prisma.analysisWorker.findFirst({ orderBy: { lastSeenAt: "desc" } }),
   ]);
-  const count = (status: JobStatusValue) => grouped.find((row) => row.status === status)?._count._all ?? 0;
-  return { queued: count("QUEUED"), running: count("RUNNING"), failed: count("FAILED"), authRequired: count("AUTH_REQUIRED"), worker };
+  const jobCount = (status: JobStatusValue) => jobs.find((row) => row.status === status)?._count._all ?? 0;
+  const briefCount = (status: JobStatusValue) => briefs.find((row) => row.status === status)?._count._all ?? 0;
+  const articleCount = (status: JobStatusValue) => articles.find((row) => row.analysisStatus === status)?._count._all ?? 0;
+  return { queued: jobCount("QUEUED"), running: jobCount("RUNNING"), briefQueued: briefCount("QUEUED"), briefRunning: briefCount("RUNNING"), failed: articleCount("FAILED"), authRequired: articleCount("AUTH_REQUIRED"), worker };
+}
+
+type QueueArticle = { id: string; title: string; business: "DELIVERY" | "LOCKER" };
+
+/** 解析状況画面（#137）の1行。記事の解析と週の総括を同じ形で並べる。 */
+export type QueueItem = {
+  id: string;
+  kind: "article" | "weekly_brief";
+  /** 記事のときだけ入る（総括にはリンク先の記事が無い）。 */
+  article: QueueArticle | null;
+  label: string;
+  attempt: number | null;
+  articleCount: number | null;
+  queuedAt: Date;
+  startedAt: Date | null;
+  leaseExpiresAt: Date | null;
+  workerHost: string | null;
+};
+
+export type AttentionItem = { jobId: string; article: QueueArticle; status: "FAILED" | "AUTH_REQUIRED"; failureKind: FailureKindValue | null; failureMessage: string | null; attempt: number; finishedAt: Date | null };
+export type CompletedItem = { jobId: string; article: QueueArticle; relevance: AnalysisRelevanceValue | null; attempt: number; finishedAt: Date | null; durationMs: number | null };
+
+export type AnalysisQueueDetail = {
+  running: QueueItem[];
+  /** ポーラーが取る順（`orderQueue()`）に並べ替える前の待ち行列。 */
+  queued: QueueItem[];
+  attention: AttentionItem[];
+  recentCompleted: CompletedItem[];
+  today: { completed: number; failed: number; averageDurationMs: number | null };
+};
+
+const QUEUE_ARTICLE_SELECT = { id: true, title: true, business: true } as const;
+
+/** 解析状況画面（#137）。何を解析中で、何が待っていて、何が止まっているかをまとめて返す。 */
+export async function getAnalysisQueueDetail(options: { recentLimit: number; attentionLimit: number; todayStart: Date }): Promise<AnalysisQueueDetail> {
+  const [activeJobs, briefs, attentionArticles, completedJobs, completedToday, failedToday, durationToday] = await Promise.all([
+    prisma.articleAnalysisJob.findMany({
+      where: { status: { in: ["QUEUED", "RUNNING"] } },
+      orderBy: { queuedAt: "asc" },
+      select: { id: true, status: true, attempt: true, queuedAt: true, startedAt: true, leaseExpiresAt: true, workerHost: true, article: { select: QUEUE_ARTICLE_SELECT } },
+    }),
+    listActiveWeeklyBriefJobs(),
+    // 記事ごとの最新ジョブが止まっているものだけを出す。再解析で直った記事の過去の失敗は出さない。
+    prisma.industryInformation.findMany({
+      where: { analysisStatus: { in: ["FAILED", "AUTH_REQUIRED"] } },
+      orderBy: { updatedAt: "desc" },
+      take: options.attentionLimit,
+      select: { ...QUEUE_ARTICLE_SELECT, analysisJobs: { orderBy: { queuedAt: "desc" }, take: 1, select: { id: true, status: true, failureKind: true, failureMessage: true, attempt: true, finishedAt: true } } },
+    }),
+    prisma.articleAnalysisJob.findMany({
+      where: { status: "COMPLETED" },
+      orderBy: { finishedAt: "desc" },
+      take: options.recentLimit,
+      select: { id: true, attempt: true, finishedAt: true, article: { select: QUEUE_ARTICLE_SELECT }, analysis: { select: { relevance: true, durationMs: true } } },
+    }),
+    prisma.articleAnalysisJob.count({ where: { status: "COMPLETED", finishedAt: { gte: options.todayStart } } }),
+    prisma.articleAnalysisJob.count({ where: { status: { in: ["FAILED", "AUTH_REQUIRED"] }, finishedAt: { gte: options.todayStart } } }),
+    prisma.articleAnalysis.aggregate({ _avg: { durationMs: true }, where: { createdAt: { gte: options.todayStart } } }),
+  ]);
+
+  const items: QueueItem[] = [
+    ...activeJobs.map((job) => ({ id: job.id, kind: "article" as const, article: job.article, label: job.article.title, attempt: job.attempt, articleCount: null, queuedAt: job.queuedAt, startedAt: job.startedAt, leaseExpiresAt: job.leaseExpiresAt, workerHost: job.workerHost })),
+    ...briefs.map((brief) => ({ id: brief.id, kind: "weekly_brief" as const, article: null, label: brief.label, attempt: null, articleCount: brief.articleCount, queuedAt: brief.queuedAt, startedAt: brief.startedAt, leaseExpiresAt: brief.leaseExpiresAt, workerHost: brief.workerHost })),
+  ];
+  const runningIds = new Set([...activeJobs, ...briefs].filter((job) => job.status === "RUNNING").map((job) => job.id));
+
+  const attention: AttentionItem[] = [];
+  for (const article of attentionArticles) {
+    const job = article.analysisJobs[0];
+    if (!job || (job.status !== "FAILED" && job.status !== "AUTH_REQUIRED")) continue;
+    attention.push({ jobId: job.id, article: { id: article.id, title: article.title, business: article.business }, status: job.status, failureKind: job.failureKind, failureMessage: job.failureMessage, attempt: job.attempt, finishedAt: job.finishedAt });
+  }
+
+  return {
+    running: items.filter((item) => runningIds.has(item.id)).sort((a, b) => (a.startedAt?.getTime() ?? 0) - (b.startedAt?.getTime() ?? 0)),
+    queued: items.filter((item) => !runningIds.has(item.id)),
+    attention,
+    recentCompleted: completedJobs.map((job) => ({ jobId: job.id, article: job.article, relevance: job.analysis?.relevance ?? null, attempt: job.attempt, finishedAt: job.finishedAt, durationMs: job.analysis?.durationMs ?? null })),
+    today: { completed: completedToday, failed: failedToday, averageDurationMs: durationToday._avg.durationMs },
+  };
 }
 
 /** 記事詳細画面。解析履歴は最新順で全件返す（1記事あたりの実行回数は多くならない）。 */

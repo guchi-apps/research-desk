@@ -5,11 +5,11 @@ import packageJson from "../../package.json";
 import AppUpdateChecker from "@/components/AppUpdateChecker";
 
 export const metadata: Metadata = {
-  title: "research-desk",
+  title: "ワークリレー",
   description:
-    "決めた条件で自動収集しつつクリップを溜め、AIアプリ（Claude／ChatGPT）に要約させ、資料として書き出す個人用ツール",
-  applicationName: "research-desk",
-  appleWebApp: { capable: true, title: "research-desk", statusBarStyle: "default" },
+    "私用スマホで集めた業界ニュースや撮った写真を、社用PC・社用メールへ届ける個人用ツール",
+  applicationName: "ワークリレー",
+  appleWebApp: { capable: true, title: "ワークリレー", statusBarStyle: "default" },
   icons: {
     icon: [
       { url: "/icon.svg", type: "image/svg+xml" },

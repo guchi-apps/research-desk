@@ -8,9 +8,9 @@ import type { MetadataRoute } from "next";
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "research-desk",
-    short_name: "research-desk",
-    description: "決めた条件で自動収集しつつクリップを溜め、AIアプリ（Claude／ChatGPT）に要約させ、資料として書き出す個人用ツール",
+    name: "ワークリレー",
+    short_name: "ワークリレー",
+    description: "私用スマホで集めた業界ニュースや撮った写真を、社用PC・社用メールへ届ける個人用ツール",
     start_url: "/dashboard",
     display: "standalone",
     background_color: "#1d3440",
