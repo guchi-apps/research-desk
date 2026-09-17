@@ -350,8 +350,10 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
   `null`）は、`setTriageDecision()`（`src/lib/article-analysis.ts`）が自動で解析ジョブも積む**
   （#154）。採用した記事は週報の材料として扱われるため、「AI解析」ボタンを押し忘れたまま
   週報を作る手戻りを防ぐ。既に解析済み・実行中・失敗済みの記事は対象外（再解析は従来どおり
-  手動の「再解析」ボタン）。1件・まとめての両方の採用（`TriageActions`・`TriageInbox`）が
-  同じ`POST /api/articles/triage`を経由するため、共通の保存関数に判定を寄せている。記事詳細
+  手動の「再解析」ボタン）。「✓ 採用」ボタン（`TriageActions`）は新着記事画面
+  （1件・まとめての両方）だけでなく、業界ニュース画面（`/dashboard`。`ArticleAnalysisBlock`が
+  `ArticleAnalysisActions`経由で内包）・記事詳細画面にも出ており、どれも同じ
+  `POST /api/articles/triage`を経由するため、共通の保存関数に判定を寄せている。記事詳細
   画面の「人による確定」フォーム（`AnalysisReviewForm`）経由の採用（`applyHumanReview()`）は
   別の保存経路のため対象外
 
