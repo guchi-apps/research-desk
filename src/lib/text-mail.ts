@@ -1,0 +1,86 @@
+/**
+ * 共有された文章（メモ等）を社用メールへ送る（#149）。
+ *
+ * 記事メール（`news-mail.ts`）と違い、送る内容はDBから引き直すものが無い——共有された文章は
+ * `/dashboard/share`のクエリを通っただけで、どこにも保存されない（#144の方針どおり、写真と
+ * 同じくメモリにも残さない）。そのため画面から受け取った文章をそのまま送信本文にする。
+ *
+ * 件名・本文の組み立ては画面のプレビューと送信APIの両方から使う（`news-mail.ts`と同じ理由で、
+ * 見えている内容と送る内容を一致させるため）。`escapeHtml`は`news-mail.ts`のものをそのまま使う。
+ *
+ * `node --test`から読めるよう、依存は相対パス＋拡張子つきで書く。
+ */
+
+import { escapeHtml, sanitizeSubjectBody } from "./news-mail.ts";
+
+/** 件名の固定接頭辞。画面からは変更できない（画像メールの`[画像]`・週報メールの`[業界ニュース]`と同じ扱い）。 */
+export const SUBJECT_PREFIX = "[メモ]";
+
+/** 件名のうち利用者が編集できる部分の上限。週報メールと揃える。 */
+export const MAX_SUBJECT_BODY_LENGTH = 160;
+
+/**
+ * 本文の上限。`/dashboard/share`へ渡る`text`は`buildSharePagePath()`（`share-inbox.ts`）で
+ * すでに1000文字に切り詰められているため、実際にここへ届く値はそれより短い。直接APIを
+ * 叩かれた場合の安全策として、余裕を持たせた上限をここでも掛ける。
+ */
+export const MAX_TEXT_LENGTH = 4000;
+
+export type TextMailContent = { subject: string; html: string; text: string };
+
+// 件名の正規化は週報メールと同じ規則にするため、実装を共有する。
+export { sanitizeSubjectBody };
+
+/** 件名。接頭辞は常に付き、本文側だけを利用者が編集できる。 */
+export function buildTextMailSubject(subjectBody: string): string {
+  const body = sanitizeSubjectBody(subjectBody);
+  return body ? `${SUBJECT_PREFIX} ${body}` : SUBJECT_PREFIX;
+}
+
+/** シンプルなHTML本文。図解は無く、受け取った文章をそのまま1つの枠に収める。 */
+export function buildTextMailHtml(text: string): string {
+  const escaped = escapeHtml(text).replace(/\r?\n/g, "<br>");
+  return `<div style="margin:0;padding:16px;background:#eef2f0;font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','Yu Gothic',sans-serif;">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;max-width:560px;margin:0 auto;background:#ffffff;border-radius:6px;">
+<tr><td style="padding:20px 22px;font-size:13px;line-height:1.85;color:#182529;white-space:pre-wrap;">${escaped}</td></tr>
+</table>
+</div>`;
+}
+
+export function buildTextMailText(text: string): string {
+  return text;
+}
+
+/** 件名・HTML・テキストをまとめて作る。送信APIはこの結果をそのままAIDEへ渡す。 */
+export function buildTextMail(input: { subjectBody: string; text: string }): TextMailContent {
+  return { subject: buildTextMailSubject(input.subjectBody), html: buildTextMailHtml(input.text), text: buildTextMailText(input.text) };
+}
+
+// --- 送信リクエストの検証 ---------------------------------------------------------------
+
+export type TextMailRequest = { text: string; subjectBody: string; idempotencyKey: string };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * `POST /api/text-mail/send`の本文を検証する。
+ *
+ * 記事メールと違い、`text`はDBに無いためブラウザから受け取った値をそのまま使う——画像メールの
+ * `title`と同じ扱い。空・上限超過・不正な値はnull。
+ */
+export function parseTextMailRequest(body: unknown): TextMailRequest | null {
+  if (!isRecord(body)) return null;
+
+  const text = typeof body.text === "string" ? body.text.trim() : "";
+  if (text === "" || text.length > MAX_TEXT_LENGTH) return null;
+
+  const subjectBody = typeof body.subjectBody === "string" ? sanitizeSubjectBody(body.subjectBody) : "";
+  if (subjectBody === "" || subjectBody.length > MAX_SUBJECT_BODY_LENGTH) return null;
+
+  const idempotencyKey = typeof body.idempotencyKey === "string" ? body.idempotencyKey.trim() : "";
+  if (idempotencyKey === "" || idempotencyKey.length > 200) return null;
+
+  return { text, subjectBody, idempotencyKey };
+}
