@@ -112,6 +112,11 @@ export type SharedText = { title: string; text: string; url: string | null };
 /**
  * 共有された`title`・`text`・`url`を整える。URLは`url`を優先し、無ければ`text`から拾う。
  * `text`からURLを拾ったときは、`text`からそのURLを取り除いた残りを文章として扱う。
+ *
+ * `url`がURL単体でないときは`rawUrl`も文章の可能性がある値として扱う（`text`→`rawUrl`の
+ * 順でURLを探し、どちらにも無ければ`rawUrl`をそのまま文章にする）。iPhoneのショートカット
+ * 「ワークリレーへ記事」は、共有した内容がURLでなくても`url=`パラメータへ載せて開くため
+ * （`docs/share-shortcut.md`）、これを素通しすると`url`も`text`も空になり、文章が失われる（#149）。
  */
 export function normalizeSharedText(input: { title?: string | null; text?: string | null; url?: string | null }): SharedText {
   const title = (input.title ?? "").trim();
@@ -119,20 +124,30 @@ export function normalizeSharedText(input: { title?: string | null; text?: strin
   const rawUrl = (input.url ?? "").trim();
   let url = rawUrl && isHttpUrl(rawUrl) ? rawUrl : null;
   if (!url) {
-    url = extractUrl(text);
-    if (url) text = text.replace(url, "").trim();
+    url = extractUrl(text) ?? extractUrl(rawUrl);
+    if (url) {
+      text = (text || rawUrl).replace(url, "").trim();
+    } else if (!text && rawUrl) {
+      text = rawUrl;
+    }
   } else if (text === url) {
     text = "";
   }
   return { title: title.slice(0, SHARE_TITLE_MAX_LENGTH), text, url };
 }
 
+/**
+ * クエリへ載せる文章の上限。URL長の制約を避けるための切り詰め値で、これを超える文章は
+ * ここで欠ける（#149のメール送信では、切り詰められた可能性を画面側で示す）。
+ */
+export const SHARE_TEXT_QUERY_MAX_LENGTH = 1000;
+
 /** 共有された記事画面のURL。ショートカット「ワークリレーへ記事」からも同じ形で開く。 */
 export function buildSharePagePath(shared: SharedText): string {
   const params = new URLSearchParams();
   if (shared.url) params.set("url", shared.url);
   if (shared.title) params.set("title", shared.title);
-  if (shared.text) params.set("text", shared.text.slice(0, 1000));
+  if (shared.text) params.set("text", shared.text.slice(0, SHARE_TEXT_QUERY_MAX_LENGTH));
   const query = params.toString();
   return query ? `/dashboard/share?${query}` : "/dashboard/share";
 }
