@@ -7,6 +7,11 @@ describe("sanitizeSubjectBody", () => {
     assert.equal(sanitizeSubjectBody("会議室\n変更\tのお知らせ"), "会議室 変更 のお知らせ");
   });
 
+  it("空白扱いにならない制御文字（NUL・BEL・DEL）も取り除く", () => {
+    const [nul, bel, del] = [0x00, 0x07, 0x7f].map((code) => String.fromCharCode(code));
+    assert.equal(sanitizeSubjectBody(`件${nul}名${bel}です${del}`), "件 名 です");
+  });
+
   it("前後の空白を取り除く", () => {
     assert.equal(sanitizeSubjectBody("  タイトル  "), "タイトル");
   });
