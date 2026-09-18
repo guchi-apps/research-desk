@@ -257,6 +257,8 @@ function TextMailBlock({ text, defaultSubjectBody }: { text: string; defaultSubj
             onChange={(event) => {
               setSubjectBody(event.target.value);
               setResult(null);
+              // 内容が変わったら別の送信として扱う（週報メールの resetOutcome() と同じ）。
+              idempotencyKeyRef.current = null;
             }}
             placeholder="件名"
           />
