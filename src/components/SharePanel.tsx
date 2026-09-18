@@ -196,7 +196,9 @@ type SendResult = { ok: true } | { ok: false; message: string };
  * いないため、このブラウザが持つ`text`をそのままサーバーへ渡す（画像メールの`title`と同じ扱い）。
  */
 function TextMailBlock({ text, defaultSubjectBody }: { text: string; defaultSubjectBody: string }) {
-  const [subjectBody, setSubjectBody] = useState(defaultSubjectBody);
+  // 初期値は文章の1行目（最大200文字）。入力欄のmaxLengthはプログラムで入れた値を切り詰めない
+  // ため、ここで件名の上限に収めておく（超えたまま送るとサーバー側の検証で400になる）。
+  const [subjectBody, setSubjectBody] = useState(() => defaultSubjectBody.slice(0, MAX_SUBJECT_BODY_LENGTH));
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<SendResult | null>(null);
   // 送信に失敗して押し直したときに二重送信にならないよう、同じ内容の間は同じ鍵を使い回す。
@@ -227,7 +229,8 @@ function TextMailBlock({ text, defaultSubjectBody }: { text: string; defaultSubj
     }
   }
 
-  const canSend = !busy && subjectBody.trim().length > 0;
+  const subjectLength = subjectBody.trim().length;
+  const canSend = !busy && subjectLength > 0 && subjectLength <= MAX_SUBJECT_BODY_LENGTH;
   // 共有元（他のアプリの共有メニュー・ショートカット）からこの画面へ渡す時点で、文章は
   // SHARE_TEXT_QUERY_MAX_LENGTH文字に切り詰められる（URL長の制約。src/lib/share-inbox.ts）。
   // ぴったりその長さなら切れている可能性があるので、送信前に気づけるよう注記する。
