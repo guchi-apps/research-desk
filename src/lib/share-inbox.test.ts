@@ -13,6 +13,7 @@ import {
   SHARE_INBOX_MAX_FILES,
   SHARE_INBOX_MAX_TOTAL_BYTES,
   SHARE_INBOX_TTL_MS,
+  SHARE_TEXT_QUERY_MAX_LENGTH,
   type ShareInboxEntry,
   type SharedFile,
 } from "./share-inbox.ts";
@@ -83,12 +84,31 @@ describe("normalizeSharedText", () => {
   it("URLの末尾の句読点は含めない", () => {
     assert.equal(extractUrl("こちら https://example.com/a。"), "https://example.com/a");
   });
+
+  it("ショートカット「ワークリレーへ記事」はURLでない入力も`url=`へ載せて開くため、文章として拾う（#149）", () => {
+    assert.deepEqual(normalizeSharedText({ url: "明日の会議は10時からです" }), { title: "", text: "明日の会議は10時からです", url: null });
+  });
+
+  it("`url=`に載った文章の中にURLがあれば記事として扱う（#149）", () => {
+    assert.deepEqual(normalizeSharedText({ url: "この記事みて https://example.com/a" }), { title: "", text: "この記事みて", url: "https://example.com/a" });
+  });
+
+  it("urlもtextも無ければ何も拾わない", () => {
+    assert.deepEqual(normalizeSharedText({}), { title: "", text: "", url: null });
+  });
 });
 
 describe("buildSharePagePath / fallbackArticleTitle", () => {
   it("共有された内容をクエリにする", () => {
     assert.equal(buildSharePagePath({ title: "記事", text: "", url: "https://example.com/a" }), "/dashboard/share?url=https%3A%2F%2Fexample.com%2Fa&title=%E8%A8%98%E4%BA%8B");
     assert.equal(buildSharePagePath({ title: "", text: "", url: null }), "/dashboard/share");
+  });
+
+  it("文章がSHARE_TEXT_QUERY_MAX_LENGTHを超える場合は切り詰める", () => {
+    const long = "あ".repeat(SHARE_TEXT_QUERY_MAX_LENGTH + 50);
+    const path = buildSharePagePath({ title: "", text: long, url: null });
+    const params = new URLSearchParams(path.split("?")[1]);
+    assert.equal(params.get("text")?.length, SHARE_TEXT_QUERY_MAX_LENGTH);
   });
 
   it("タイトルが無ければ文章の1行目、それも無ければホスト名を使う", () => {

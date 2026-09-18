@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
+import { SHARE_TEXT_QUERY_MAX_LENGTH } from "@/lib/share-inbox";
 import { buildTextMailHtml, MAX_SUBJECT_BODY_LENGTH } from "@/lib/text-mail";
 import { TRIAGE_LABELS, type TriageState } from "@/lib/triage";
 
@@ -227,9 +228,21 @@ function TextMailBlock({ text, defaultSubjectBody }: { text: string; defaultSubj
   }
 
   const canSend = !busy && subjectBody.trim().length > 0;
+  // 共有元（他のアプリの共有メニュー・ショートカット）からこの画面へ渡す時点で、文章は
+  // SHARE_TEXT_QUERY_MAX_LENGTH文字に切り詰められる（URL長の制約。src/lib/share-inbox.ts）。
+  // ぴったりその長さなら切れている可能性があるので、送信前に気づけるよう注記する。
+  const mayBeTruncated = text.length >= SHARE_TEXT_QUERY_MAX_LENGTH;
 
   return (
     <>
+      {mayBeTruncated && (
+        <div className="share-note">
+          <span className="share-note-mark" aria-hidden="true">i</span>
+          <div>
+            <p>共有元の制約で、長い文章は{SHARE_TEXT_QUERY_MAX_LENGTH}文字までしかこの画面に届きません。元の文章より短くなっている場合があります。</p>
+          </div>
+        </div>
+      )}
       <div className="imgmail-block">
         <div className="newsmail-block-head">
           <h2>件名</h2>
