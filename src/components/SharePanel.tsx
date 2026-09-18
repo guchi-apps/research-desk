@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
+import { buildTextMailHtml, MAX_SUBJECT_BODY_LENGTH } from "@/lib/text-mail";
 import { TRIAGE_LABELS, type TriageState } from "@/lib/triage";
 
 export type ExistingArticleView = {
@@ -46,7 +47,8 @@ function ArticleStatusChip({ article }: { article: ExistingArticleView }) {
 }
 
 /**
- * 共有された記事を新着記事へ登録する操作（#144）。URLが無い共有（文章だけ）は登録できないので案内だけ出す。
+ * 共有された記事・文章の操作（#144・#149）。URLがあれば新着記事への登録、無ければ
+ * 文章をそのまま社用メールへ送る（`TextMailBlock`）。どちらも無ければ案内だけ出す。
  */
 export default function SharePanel({ url, text, defaultTitle, existing }: Props) {
   const router = useRouter();
@@ -57,22 +59,27 @@ export default function SharePanel({ url, text, defaultTitle, existing }: Props)
   const [saved, setSaved] = useState<Saved | null>(existing ? { outcome: "duplicate", article: existing } : null);
 
   if (!url) {
+    if (!text) {
+      return (
+        <div className="share-card">
+          <div className="share-note">
+            <span className="share-note-mark" aria-hidden="true">i</span>
+            <div>
+              <p><strong>共有された内容がありません</strong></p>
+              <p>記事として追加できるのはURLのある共有だけです。</p>
+            </div>
+          </div>
+          <Link className="cta ghost full big" href="/dashboard/image-mail">写真を添えて「画像を送る」へ</Link>
+        </div>
+      );
+    }
     return (
       <div className="share-card">
-        {text ? (
-          <div className="imgmail-block">
-            <div className="imgmail-block-head"><h2>受け取った文章</h2></div>
-            <p className="share-text">{text}</p>
-          </div>
-        ) : null}
-        <div className="share-note">
-          <span className="share-note-mark" aria-hidden="true">i</span>
-          <div>
-            <p><strong>{text ? "文章にURLが含まれていません" : "共有された内容がありません"}</strong></p>
-            <p>記事として追加できるのはURLのある共有だけです。文章だけを社用メールへ送る機能はまだありません。</p>
-          </div>
+        <div className="imgmail-block">
+          <div className="imgmail-block-head"><h2>受け取った文章</h2></div>
+          <p className="share-text">{text}</p>
         </div>
-        <Link className="cta ghost full big" href="/dashboard/image-mail">写真を添えて「画像を送る」へ</Link>
+        <TextMailBlock text={text} defaultSubjectBody={defaultTitle} />
       </div>
     );
   }
@@ -177,5 +184,103 @@ export default function SharePanel({ url, text, defaultTitle, existing }: Props)
       </div>
       {business === null && <p className="helper">事業を選ぶと追加できます。</p>}
     </div>
+  );
+}
+
+type SendResult = { ok: true } | { ok: false; message: string };
+
+/**
+ * URLの無い共有（文章だけ）を社用メールへ送る操作（#149）。件名・本文の組み立ては
+ * `src/lib/text-mail.ts`の`buildTextMailHtml()`をそのまま使う——送る内容はDBに保存されて
+ * いないため、このブラウザが持つ`text`をそのままサーバーへ渡す（画像メールの`title`と同じ扱い）。
+ */
+function TextMailBlock({ text, defaultSubjectBody }: { text: string; defaultSubjectBody: string }) {
+  const [subjectBody, setSubjectBody] = useState(defaultSubjectBody);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<SendResult | null>(null);
+  // 送信に失敗して押し直したときに二重送信にならないよう、同じ内容の間は同じ鍵を使い回す。
+  const idempotencyKeyRef = useRef<string | null>(null);
+
+  async function send() {
+    if (!idempotencyKeyRef.current) idempotencyKeyRef.current = crypto.randomUUID();
+    setBusy(true);
+    setResult(null);
+    try {
+      const response = await fetch("/api/text-mail/send", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, subjectBody: subjectBody.trim(), idempotencyKey: idempotencyKeyRef.current }),
+      });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message = body && typeof body === "object" && "message" in body && typeof body.message === "string" ? body.message : "送信に失敗しました";
+        setResult({ ok: false, message });
+        return;
+      }
+      idempotencyKeyRef.current = null;
+      setResult({ ok: true });
+    } catch {
+      setResult({ ok: false, message: "通信に失敗しました。しばらくしてから再試行してください" });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const canSend = !busy && subjectBody.trim().length > 0;
+
+  return (
+    <>
+      <div className="imgmail-block">
+        <div className="newsmail-block-head">
+          <h2>件名</h2>
+          <span>先頭の [メモ] は固定です</span>
+        </div>
+        <div className="subject-input-row">
+          <span className="subject-fixed">[メモ]</span>
+          <input
+            type="text"
+            value={subjectBody}
+            maxLength={MAX_SUBJECT_BODY_LENGTH}
+            onChange={(event) => {
+              setSubjectBody(event.target.value);
+              setResult(null);
+            }}
+            placeholder="件名"
+          />
+        </div>
+      </div>
+      <div className="imgmail-block">
+        <div className="newsmail-block-head">
+          <h2>送る内容のプレビュー</h2>
+          <span>この文章をそのまま送ります</span>
+        </div>
+        <div className="mail-preview">
+          <div className="bar">受信側で見える形</div>
+          {/* buildTextMailHtml()はサーバーの送信時にも使う関数。プレビューと送信本文を
+              別実装にしないため、ここでもそのまま差し込む。値はエスケープ済み。 */}
+          <div className="mail-frame" dangerouslySetInnerHTML={{ __html: buildTextMailHtml(text) }} />
+        </div>
+      </div>
+      <p className="dest-note">宛先・BCCは設定済みの社用アドレス固定です（画面からは変更できません）。同じ内容を続けて押しても二重には送りません。</p>
+      <button type="button" className="cta full big" disabled={!canSend} onClick={() => void send()}>
+        {busy ? "送信中…" : "この内容で送信する"}
+      </button>
+      {result &&
+        (result.ok ? (
+          <div className="success-banner">
+            <div className="dot">✓</div>
+            <div>
+              <p>送信しました。Gmailで受信を確認してください。</p>
+            </div>
+          </div>
+        ) : (
+          <div className="success-banner error">
+            <div className="dot">!</div>
+            <div>
+              <p>{result.message}</p>
+            </div>
+          </div>
+        ))}
+    </>
   );
 }
