@@ -6,6 +6,7 @@ import {
   extractUrl,
   fallbackArticleTitle,
   hasPendingShare,
+  normalizeBatchId,
   normalizeSharedText,
   putShareEntry,
   takeShareEntry,
@@ -24,7 +25,7 @@ describe("putShareEntry / takeShareEntry", () => {
   it("置いた写真は一度だけ取り出せる", () => {
     const store = new Map<string, ShareInboxEntry>();
     const put = putShareEntry(store, { title: " 現場 ", files: [photo(), photo()] }, 0, "x");
-    assert.deepEqual(put, { ok: true, id: "x" });
+    assert.deepEqual(put, { ok: true, id: "x", count: 2 });
     const taken = takeShareEntry(store, "x", 1);
     assert.equal(taken?.title, "現場");
     assert.equal(taken?.files.length, 2);
@@ -60,6 +61,76 @@ describe("putShareEntry / takeShareEntry", () => {
     assert.deepEqual(putShareEntry(store, { title: "", files: [photo(SHARE_INBOX_MAX_TOTAL_BYTES + 1)] }, 0), { ok: false, reason: "too_large" });
     assert.deepEqual(putShareEntry(store, { title: "", files: [{ name: "a.pdf", type: "application/pdf", data: new Uint8Array(1) }] }, 0), { ok: false, reason: "not_image" });
     assert.equal(store.size, 0);
+  });
+});
+
+describe("putShareEntry（batchでまとめる。#163）", () => {
+  it("同じbatchの写真は1つの置き場へ追記し、合計の枚数を返す", () => {
+    const store = new Map<string, ShareInboxEntry>();
+    assert.deepEqual(putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, 0, "x"), { ok: true, id: "x", count: 1 });
+    assert.deepEqual(putShareEntry(store, { title: "現場", files: [photo()], batch: "b1" }, 1, "y"), { ok: true, id: "x", count: 2 });
+    assert.equal(store.size, 1);
+    const taken = takeShareEntry(store, "x", 2);
+    assert.equal(taken?.files.length, 2);
+    assert.equal(taken?.title, "現場");
+  });
+
+  it("タイトルは最初に入っていたものを優先する", () => {
+    const store = new Map<string, ShareInboxEntry>();
+    putShareEntry(store, { title: "最初", files: [photo()], batch: "b1" }, 0, "x");
+    putShareEntry(store, { title: "後から", files: [photo()], batch: "b1" }, 1, "y");
+    assert.equal(takeShareEntry(store, "x", 2)?.title, "最初");
+  });
+
+  it("batchが違う、またはbatchが無い写真は別の置き場になる", () => {
+    const store = new Map<string, ShareInboxEntry>();
+    putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, 0, "a");
+    putShareEntry(store, { title: "", files: [photo()], batch: "b2" }, 1, "b");
+    putShareEntry(store, { title: "", files: [photo()] }, 2, "c");
+    putShareEntry(store, { title: "", files: [photo()] }, 3, "d");
+    assert.equal(store.size, SHARE_INBOX_MAX_ENTRIES);
+    assert.equal(store.has("a"), false);
+  });
+
+  it("追記で置き場が上限に達していても、同じbatchなら古いものを捨てずに追記する", () => {
+    const store = new Map<string, ShareInboxEntry>();
+    for (let i = 0; i < SHARE_INBOX_MAX_ENTRIES; i++) putShareEntry(store, { title: "", files: [photo()], batch: `b${i}` }, i, `e${i}`);
+    putShareEntry(store, { title: "", files: [photo()], batch: "b0" }, 10, "z");
+    assert.equal(store.size, SHARE_INBOX_MAX_ENTRIES);
+    assert.equal(store.get("e0")?.files.length, 2);
+  });
+
+  it("枚数・合計サイズの上限はまとめた単位で守り、超える追記は断ってそれまでの写真は残す", () => {
+    const store = new Map<string, ShareInboxEntry>();
+    putShareEntry(store, { title: "", files: Array.from({ length: SHARE_INBOX_MAX_FILES }, () => photo()), batch: "b1" }, 0, "x");
+    assert.deepEqual(putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, 1), { ok: false, reason: "too_many_files" });
+    assert.equal(store.get("x")?.files.length, SHARE_INBOX_MAX_FILES);
+
+    const large = new Map<string, ShareInboxEntry>();
+    putShareEntry(large, { title: "", files: [photo(SHARE_INBOX_MAX_TOTAL_BYTES)], batch: "b1" }, 0, "y");
+    assert.deepEqual(putShareEntry(large, { title: "", files: [photo(1)], batch: "b1" }, 1), { ok: false, reason: "too_large" });
+    assert.equal(large.get("y")?.files.length, 1);
+  });
+
+  it("有効期限は最初の1枚を置いた時点から数える", () => {
+    const store = new Map<string, ShareInboxEntry>();
+    putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, 0, "x");
+    putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, SHARE_INBOX_TTL_MS - 1, "y");
+    assert.equal(takeShareEntry(store, "x", SHARE_INBOX_TTL_MS + 1), null);
+  });
+});
+
+describe("normalizeBatchId", () => {
+  it("空ならnull、使える文字ならそのまま返す", () => {
+    assert.equal(normalizeBatchId(null), null);
+    assert.equal(normalizeBatchId("  "), null);
+    assert.equal(normalizeBatchId(" 2026-09-19T10:30:15 "), "2026-09-19T10:30:15");
+  });
+
+  it("使えない文字や長すぎる値はinvalid", () => {
+    assert.equal(normalizeBatchId("a b"), "invalid");
+    assert.equal(normalizeBatchId("あ"), "invalid");
+    assert.equal(normalizeBatchId("a".repeat(65)), "invalid");
   });
 });
 
