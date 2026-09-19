@@ -23,7 +23,8 @@ export const SHARE_INBOX_MAX_ENTRIES = 3;
 export const SHARE_TITLE_MAX_LENGTH = 200;
 
 export type SharedFile = { name: string; type: string; data: Uint8Array };
-export type ShareInboxEntry = { id: string; title: string; files: SharedFile[]; createdAt: number };
+/** `batch`は、同じ共有としてまとめる写真に共通のID（#163）。まとめない共有（Androidなど）はnull。 */
+export type ShareInboxEntry = { id: string; title: string; files: SharedFile[]; createdAt: number; batch: string | null };
 
 type Store = Map<string, ShareInboxEntry>;
 
@@ -41,7 +42,7 @@ export function pruneExpired(store: Store, now: number): void {
   }
 }
 
-export type PutResult = { ok: true; id: string } | { ok: false; reason: "no_files" | "too_many_files" | "too_large" | "not_image" };
+export type PutResult = { ok: true; id: string; count: number } | { ok: false; reason: "no_files" | "too_many_files" | "too_large" | "not_image" };
 
 export function validateSharedFiles(files: SharedFile[]): Exclude<PutResult, { ok: true }> | null {
   if (files.length === 0) return { ok: false, reason: "no_files" };
@@ -52,18 +53,52 @@ export function validateSharedFiles(files: SharedFile[]): Exclude<PutResult, { o
   return null;
 }
 
-export function putShareEntry(store: Store, input: { title: string; files: SharedFile[] }, now: number, id: string = crypto.randomUUID()): PutResult {
+const BATCH_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
+
+/**
+ * まとめ用IDを整える。空なら`null`（まとめない）。使える文字・長さを外れていれば`"invalid"`。
+ * ショートカットが日時から作る値（`20260919103015`など）を受けられればよいので、文字は絞っておく。
+ */
+export function normalizeBatchId(value: string | null | undefined): string | null | "invalid" {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return null;
+  return BATCH_ID_PATTERN.test(trimmed) ? trimmed : "invalid";
+}
+
+/**
+ * 写真を置き場へ置く。`batch`が同じ置き場が既にあれば、そこへ追記する（#163）。
+ * iPhoneのショートカットのフォームは「ファイル」フィールドに先頭の1枚しか載せないため、
+ * 「繰り返す」で1枚ずつ送っても同じ共有としてまとめられるようにしている。
+ *
+ * 枚数・合計サイズの上限と10分の有効期限は、まとめた単位で守る（期限は最初の1枚を置いた時点から）。
+ * 追記が上限を超えるときは断り、それまでに置いた写真は残す。
+ */
+export function putShareEntry(store: Store, input: { title: string; files: SharedFile[]; batch?: string | null }, now: number, id: string = crypto.randomUUID()): PutResult {
+  pruneExpired(store, now);
+  const title = input.title.trim().slice(0, SHARE_TITLE_MAX_LENGTH);
+  const batch = input.batch ?? null;
+
   const invalid = validateSharedFiles(input.files);
   if (invalid) return invalid;
-  pruneExpired(store, now);
+
+  const existing = batch ? [...store.values()].find((entry) => entry.batch === batch) : undefined;
+  if (existing) {
+    const merged = [...existing.files, ...input.files];
+    const mergedInvalid = validateSharedFiles(merged);
+    if (mergedInvalid) return mergedInvalid;
+    existing.files = merged;
+    if (!existing.title) existing.title = title;
+    return { ok: true, id: existing.id, count: merged.length };
+  }
+
   // Mapは挿入順を保つので、先頭が一番古い。
   while (store.size >= SHARE_INBOX_MAX_ENTRIES) {
     const oldest = store.keys().next().value;
     if (oldest === undefined) break;
     store.delete(oldest);
   }
-  store.set(id, { id, title: input.title.trim().slice(0, SHARE_TITLE_MAX_LENGTH), files: input.files, createdAt: now });
-  return { ok: true, id };
+  store.set(id, { id, title, files: input.files, createdAt: now, batch });
+  return { ok: true, id, count: input.files.length };
 }
 
 /** 一度だけ取り出す。取り出したら置き場から消す。`id`がnullなら一番新しいもの。 */
