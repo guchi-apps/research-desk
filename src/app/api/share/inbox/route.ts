@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { json, requireShareShortcutToken } from "@/lib/internal-auth";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { buildSharePagePath, getShareInboxStore, normalizeSharedText, putShareEntry, takeShareEntry, type PutResult, type SharedFile } from "@/lib/share-inbox";
+import { buildSharePagePath, getShareInboxStore, normalizeBatchId, normalizeSharedText, putShareEntry, takeShareEntry, type PutResult, type SharedFile } from "@/lib/share-inbox";
 
 export const runtime = "nodejs";
 
@@ -22,6 +22,7 @@ const PUT_ERROR_MESSAGES: Record<Exclude<PutResult, { ok: true }>["reason"], str
  *   フォームを送って遷移してくるので、セッションで認証して行き先へ303で飛ばす
  *
  * 写真はメモリにだけ置く（`src/lib/share-inbox.ts`）。URL・文章は置かずにクエリで画面へ渡す。
+ * `batch`が同じ写真は1つの共有としてまとめる。応答の`count`は、まとめた合計の枚数。
  */
 export async function POST(request: Request) {
   const fromShortcut = request.headers.has("authorization");
@@ -45,6 +46,14 @@ export async function POST(request: Request) {
     return fromShortcut ? json({ error: "invalid_form", message: "送られてきた内容を読み取れませんでした" }, 400) : NextResponse.redirect(`${origin}/dashboard/share`, 303);
   }
 
+  // ショートカットの「ファイル」フィールドは先頭の1枚しか送らないため、「繰り返す」で1枚ずつ送る。
+  // 同じ`batch`の写真は1つの置き場へ追記する（#163）。
+  const batch = normalizeBatchId(stringField(form, "batch"));
+  if (batch === "invalid") {
+    const message = "batchは半角英数字と . _ : - の64文字以内にしてください";
+    return fromShortcut ? json({ error: "invalid_batch", message }, 400) : NextResponse.redirect(`${origin}/dashboard/image-mail?shareError=invalid_batch`, 303);
+  }
+
   const shared = normalizeSharedText({ title: stringField(form, "title"), text: stringField(form, "text"), url: stringField(form, "url") });
   // ショートカットのフォームで配列のキーを`files[]`と書いた場合も受け付ける。
   const blobs = [...form.getAll("files"), ...form.getAll("files[]")].filter((value): value is File => value instanceof File && value.size > 0);
@@ -57,7 +66,7 @@ export async function POST(request: Request) {
   const files: SharedFile[] = await Promise.all(blobs.map(async (blob, index) => ({ name: blob.name || `photo-${index + 1}.jpg`, type: blob.type.startsWith("image/") ? blob.type : guessImageType(blob.name), data: new Uint8Array(await blob.arrayBuffer()) })));
   // 写真に添えられた文章（URL以外）は写真タイトルの候補にする。
   const title = shared.title || shared.text.split(/\r?\n/)[0] || "";
-  const result = putShareEntry(getShareInboxStore(), { title, files }, Date.now());
+  const result = putShareEntry(getShareInboxStore(), { title, files, batch }, Date.now());
 
   if (!result.ok) {
     const message = PUT_ERROR_MESSAGES[result.reason];
@@ -65,7 +74,7 @@ export async function POST(request: Request) {
   }
 
   const openUrl = `${origin}/dashboard/image-mail?shared=${result.id}`;
-  return fromShortcut ? json({ ok: true, kind: "photos", count: files.length, openUrl }, 200) : NextResponse.redirect(openUrl, 303);
+  return fromShortcut ? json({ ok: true, kind: "photos", count: result.count, openUrl }, 200) : NextResponse.redirect(openUrl, 303);
 }
 
 /**
