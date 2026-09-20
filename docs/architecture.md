@@ -102,9 +102,10 @@ Research Deskの認証情報はChatGPTへ露出しない。
 全体10件、各事業5件までを入力検証する（#47。当初は全体6件・各事業3件で、AIDE側が広げた上限
 （guchi-apps/aide#226）にここも揃えた）。`extractedMetrics`（主要数値のオブジェクト）はAIDE側の
 制限（30項目・JSONにして2000文字まで）と同じ上限で受け付ける。事業あたりの入力上限（5件）は
-`upsertIndustryInformationEvent()`側の週あたり保持上限（`BUSINESS_WEEKLY_LIMIT`＝5件/事業）と
-同じ値のため、1回のリクエストの5件だけで週の保持上限にちょうど到達する（後述の
-置換／除外はその次のリクエスト、たとえば翌日分から働く）。記事の取り込みは
+`upsertIndustryInformationEvent()`側の週あたり保持上限（`BUSINESS_WEEKLY_LIMIT`＝15件/事業）とは
+別の値で、AIDE側との契約として据え置いている（#94で保持上限だけを広げた）。1回のリクエストの
+5件では週の保持上限に届かないため、置換／除外は同じ週に複数回登録したり、自動収集の記事が
+先に枠を使っていたりして、保持上限に達したときに働く。記事の取り込みは
 `upsertIndustryInformationEvent()`（#43。自動収集の`runDailyCollection()`とも共通）に委ね、
 完全URL一致は従来どおり冪等に扱い、URLが異なっていても同一イベントと判定した記事は新規作成せず
 既存記事へ統合・上書き更新する。登録結果は`CollectionRun`に保存し、新規・統合更新・重複・除外の
@@ -187,12 +188,13 @@ DBに依存しない形（コードレビュー・curlでの入力検証確認�
 
 ## 新着記事の仕分け画面（`/dashboard/inbox`。元は`/`、#42）
 
-直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で最大`RECENT_LIMIT`（10）件
+直近で収集された業界情報（`IndustryInformation`）を`collectedAt`降順で最大`RECENT_LIMIT`（60）件
 取得し、JSTの日付基準で「今日」「昨日」「それ以前」に区分して表示する
 （`src/lib/industry-information.ts`の`listRecentIndustryInformation()`・`getRecencyLabel()`）。
 
-収集は週1回程度の想定（`COLLECTION_LIMIT`は1回6件）のため、「今日・昨日」だけに絞ると大半の日は
-空になる。そのため常に直近の記事を件数上限で取得し、区分ラベルは表示上の見出しとしてのみ使う
+収集は日次（`collection-daily.yml`。`COLLECTION_LIMIT`は1回30件）だが、新規の記事が無い日もあり、
+「今日・昨日」だけに絞ると空になる日がある。そのため常に直近の記事を件数上限で取得し、区分ラベルは
+表示上の見出しとしてのみ使う
 （0件になる区分の見出しは出さない）。
 
 **#124でログイン後の初期画面を業界ニュース画面（`/dashboard`）に変えたのにともない、この画面は

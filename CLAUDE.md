@@ -231,8 +231,9 @@ Secretsや環境変数／課金・決済／大規模な依存関係の更新／`
 - `sync-secrets.yml` … 1Passwordから`.github/secrets-manifest.tsv`のとおりに同期する
 
 自動修復系（`claude-ci-fix.yml`・`claude-conflict-resolve.yml`・`claude-pr-repair.yml`・
-`claude-review-develop.yml`・`deploy-retry.yml`）はまだ置かれていない。issue-deckの画面
-（設定＞フリート運用）から`guchi-apps/research-desk`へ配れる。
+`claude-review-develop.yml`・`deploy-retry.yml`）も置かれており、いずれも同じ`uses:`のタグ固定
+（`@workflows/vN`）に従う。タグの引き上げは他のcallerと同じくissue-deckの画面
+（設定＞フリート運用）から配られる。
 
 **callerに書ける`with:`は、参照しているタグ時点の再利用ワークフローが持つ入力だけ。**
 宣言されていない入力を渡すとワークフローの読み込み自体が失敗する。
