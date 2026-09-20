@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { json, requireShareShortcutToken } from "@/lib/internal-auth";
 import { getRequestOrigin } from "@/lib/request-origin";
-import { buildSharePagePath, getShareInboxStore, normalizeBatchId, normalizeSharedText, putShareEntry, takeShareEntry, type PutResult, type SharedFile } from "@/lib/share-inbox";
+import { buildSharePagePath, getShareInboxStore, isRequestBodyTooLarge, normalizeBatchId, normalizeSharedText, putShareEntry, takeShareEntry, type PutResult, type SharedFile } from "@/lib/share-inbox";
 
 export const runtime = "nodejs";
 
@@ -37,6 +37,12 @@ export async function POST(request: Request) {
     // 共有メニューからの遷移はページ遷移なので、401のJSONではなくログイン画面へ送る。
     // 送られてきた内容はここで失われるため、ログイン後にもう一度共有してもらう。
     if (user.status === "unauthenticated") return NextResponse.redirect(`${origin}/login`, 303);
+  }
+
+  // `formData()`は本文を全部メモリへ読み込むので、上限を超えると分かっているものは読む前に断る（#172）。
+  if (isRequestBodyTooLarge(request.headers.get("content-length"))) {
+    const reason = "too_large";
+    return fromShortcut ? json({ error: reason, message: PUT_ERROR_MESSAGES[reason] }, 413) : NextResponse.redirect(`${origin}/dashboard/image-mail?shareError=${reason}`, 303);
   }
 
   let form: FormData;
