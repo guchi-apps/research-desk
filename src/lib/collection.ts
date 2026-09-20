@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
+import { decideDailyRunStatus, fitsNormalizedUrlColumn } from "@/lib/collection-rules";
 import { getWeekRange, weekCondition, toMergedSources, type MergedSource, type WeekRange } from "@/lib/industry-information";
 import { decideWeeklyCap, IMPORTANCE_RANK, type ImportanceValue, type PriorityFields } from "@/lib/triage";
 
@@ -447,7 +448,10 @@ function parseFeed(xml: string, feed: (typeof FEEDS)[number], targetFrom: Date, 
   return [...xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)].map((match) => match[1]).map((item) => {
     const title = field(item, "title"); const url = field(item, "link"); const dateText = field(item, "pubDate"); const publishedAt = dateText ? new Date(dateText) : null;
     if (!title || !url || !publishedAt || Number.isNaN(publishedAt.getTime()) || publishedAt < supplementalFrom || publishedAt > targetTo) return null;
-    return { business: feed.business, title, url: normalizeUrl(url), sourceName: feed.name, publisher: field(item, "source"), publishedAt, isSupplemental: publishedAt < targetFrom, ...classify(title, feed.business) };
+    // `normalizedUrl`列（VarChar(512)）に収まらないURLは、登録で例外になる前にここで落とす（#170）。
+    const normalizedUrl = normalizeUrl(url);
+    if (!fitsNormalizedUrlColumn(normalizedUrl)) return null;
+    return { business: feed.business, title, url: normalizedUrl, sourceName: feed.name, publisher: field(item, "source"), publishedAt, isSupplemental: publishedAt < targetFrom, ...classify(title, feed.business) };
   }).filter((item): item is Candidate => item !== null);
 }
 
@@ -472,39 +476,49 @@ export async function runDailyCollection(now = new Date()): Promise<CollectionRe
   const supplementalFrom = new Date(now.getTime() - 30 * DAY_MS);
   const run = await prisma.collectionRun.create({ data: { targetFrom, targetTo, supplementalFrom } });
   const errors: string[] = [];
+  let feedFailures = 0;
+  let articleFailures = 0;
   const candidates: Candidate[] = [];
   for (const feed of FEEDS) try {
     const response = await fetch(feed.url, { headers: { "user-agent": "research-desk/0.1 (+public-rss-collector)" }, signal: AbortSignal.timeout(15_000) });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     candidates.push(...parseFeed(await response.text(), feed, targetFrom, targetTo, supplementalFrom));
-  } catch (error) { errors.push(`${feed.name}: ${error instanceof Error ? error.message : "取得に失敗しました"}`); }
+  } catch (error) { feedFailures++; errors.push(`${feed.name}: ${error instanceof Error ? error.message : "取得に失敗しました"}`); }
   const selected = selectCandidates(candidates);
   let insertedCount = 0;
   let duplicateCount = 0;
   let mergedCount = 0;
   let excludedCount = 0;
   const excludedArticles: ExcludedArticle[] = [];
-  for (const item of selected) {
-    const { outcome, excluded } = await upsertIndustryInformationEvent({
-      business: item.business,
-      informationType: item.informationType,
-      title: item.title,
-      url: item.url,
-      sourceName: item.sourceName,
-      publisher: item.publisher,
-      isPrimarySource: false,
-      publishedAt: item.publishedAt,
-      importance: item.importance,
-      keywords: item.keywords,
-      tags: item.tags,
-      periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE",
-    }, run.id);
-    if (excluded) { excludedArticles.push(excluded); excludedCount++; }
-    if (outcome === "duplicate") duplicateCount++;
-    else if (outcome === "merged") mergedCount++;
-    else if (outcome === "inserted") insertedCount++;
+  // 記事単位で握る（#170）。1件の登録失敗で残りの候補・`CollectionRun`の更新・新着通知まで
+  // 止まると、実行記録が`RUNNING`のまま残る。エラー文（Prismaの生の文）は記録・応答へ載せず、ログへ出す。
+  for (const [index, item] of selected.entries()) {
+    try {
+      const { outcome, excluded } = await upsertIndustryInformationEvent({
+        business: item.business,
+        informationType: item.informationType,
+        title: item.title,
+        url: item.url,
+        sourceName: item.sourceName,
+        publisher: item.publisher,
+        isPrimarySource: false,
+        publishedAt: item.publishedAt,
+        importance: item.importance,
+        keywords: item.keywords,
+        tags: item.tags,
+        periodScope: item.isSupplemental ? "PAST_30_DAYS_SUPPLEMENT" : "IN_SCOPE",
+      }, run.id);
+      if (excluded) { excludedArticles.push(excluded); excludedCount++; }
+      if (outcome === "duplicate") duplicateCount++;
+      else if (outcome === "merged") mergedCount++;
+      else if (outcome === "inserted") insertedCount++;
+    } catch (error) {
+      articleFailures++;
+      errors.push(`ARTICLE_INSERT_FAILED: 記事${index + 1}件目の登録に失敗しました`);
+      console.error(`日次収集: 記事の登録に失敗しました（run=${run.id}, url=${item.url}）`, error);
+    }
   }
-  const status = errors.length === FEEDS.length ? "FAILED" : errors.length > 0 ? "PARTIAL" : "SUCCEEDED";
+  const status = decideDailyRunStatus({ feedCount: FEEDS.length, feedFailures, selectedCount: selected.length, articleFailures });
   await prisma.collectionRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), status, fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, mergedCount, excludedCount, failedCount: errors.length, errors, excludedArticles: excludedArticles.length ? (excludedArticles as unknown as Prisma.InputJsonValue) : undefined } });
   return { runId: run.id, status, targetFrom: targetFrom.toISOString(), targetTo: targetTo.toISOString(), supplementalFrom: supplementalFrom.toISOString(), fetchedCount: candidates.length, selectedCount: selected.length, insertedCount, duplicateCount, mergedCount, excludedCount, failedCount: errors.length, errors };
 }
