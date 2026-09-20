@@ -10,6 +10,8 @@ import { decideWeeklyCap, IMPORTANCE_RANK, type ImportanceValue, type PriorityFi
 // 契約なので変えていない（`src/app/api/internal/weekly-report/route.ts`）。
 export const COLLECTION_LIMIT = 30;
 const BUSINESS_WEEKLY_LIMIT = 15;
+// 週あたり上限の置換で隠した記事の`updateReason`（業界ニュース画面の「更新理由」に出る）。
+const REPLACED_UPDATE_REASON = "週あたり上限のため、優先度の高い記事に置き換えられました（週報候補から外しています）";
 const DAY_MS = 24 * 60 * 60 * 1000;
 type Business = "DELIVERY" | "LOCKER";
 type InformationType = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "QUALITY_SAFETY" | "OVERSEAS_CASE" | "OTHER";
@@ -305,8 +307,9 @@ function toCreateData(article: EventArticleInput, runId: string, normalizedUrl: 
  * 1. 完全URL一致は従来どおり冪等（`duplicate`、何も更新しない）
  * 2. 同じ週・同じ事業のレコードから同一イベントを判定し、マッチすれば新規行を作らず統合更新する
  * 3. マッチしなければ新規イベントとして扱い、週あたり上限（事業ごと`BUSINESS_WEEKLY_LIMIT`件）を
- *    適用する（優先度が上回れば最弱の既存記事を削除して置換、そうでなければ新規候補を除外）。
- *    上限には不採用の記事を数えず、人が採用した記事は置換で削除しない（#94。`decideWeeklyCap()`）。
+ *    適用する（優先度が上回れば最弱の既存記事を週報候補から外して置換、そうでなければ新規候補を除外）。
+ *    置換は行を削除しない（AI解析結果と`normalizedUrl`の一意制約を残す。#171）。
+ *    上限には不採用の記事を数えず、人が採用した記事は置換で外さない（#94。`decideWeeklyCap()`）。
  *    同一イベント判定（2.）は不採用の記事も含めて行うため、不採用にした発表の転載は不採用の
  *    記事へ統合されたまま隠れ、新しい未判定の記事として出直してこない
  */
@@ -340,7 +343,14 @@ export async function upsertIndustryInformationEvent(article: EventArticleInput,
   if (decision.action === "replace") {
     const weakest = decision.target;
     excluded = { business: article.business, title: weakest.title, url: weakest.normalizedUrl, reason: "REPLACED", replacedArticleId: weakest.id, replacedArticleTitle: weakest.title, occurredAt: new Date().toISOString() };
-    await prisma.industryInformation.delete({ where: { id: weakest.id } });
+    // 削除せず週報候補から外して隠す（#171）。行を消すと`ArticleAnalysis`・`ArticleAnalysisJob`が
+    // カスケードで消え（実行中ならポーラーの報告が404になる）、`normalizedUrl`の一意制約も消えて、
+    // 翌日のRSSに同じ記事が残っていれば未判定として登録し直される。`reviewedAt`は立てないので
+    // 「AIが対象外と判定」（`ai_rejected`）と同じ扱いで、人が「採用」で戻せる
+    await prisma.industryInformation.update({
+      where: { id: weakest.id },
+      data: { weeklyCandidate: false, updateReason: REPLACED_UPDATE_REASON, updatedByRunId: runId },
+    });
   } else if (decision.action === "exclude") {
     excluded = { business: article.business, title: article.title, url: normalizedUrl, reason: "CAPACITY_EXCEEDED", occurredAt: new Date().toISOString() };
     return { outcome: "excluded", excluded };
