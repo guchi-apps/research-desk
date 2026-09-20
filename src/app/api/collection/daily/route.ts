@@ -1,19 +1,14 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { hasCollectionCronSecret } from "@/lib/internal-auth";
 import { notifyNewCandidates } from "@/lib/aide-bot-notice";
 import { runDailyCollection } from "@/lib/collection";
 import { getRequestOrigin } from "@/lib/request-origin";
 
 export const runtime = "nodejs";
 
-function hasCronSecret(request: Request): boolean {
-  const secret = process.env.COLLECTION_CRON_SECRET;
-  if (!secret) return false;
-  return request.headers.get("authorization") === `Bearer ${secret}` || request.headers.get("x-collection-secret") === secret;
-}
-
 export async function POST(request: Request) {
-  const authenticated = hasCronSecret(request) || (await getCurrentUser()).status === "authenticated";
+  const authenticated = hasCollectionCronSecret(request) || (await getCurrentUser()).status === "authenticated";
   if (!authenticated) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   try {
     const result = await runDailyCollection();
