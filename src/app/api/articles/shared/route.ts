@@ -1,13 +1,12 @@
 import { getCurrentUser } from "@/lib/auth";
 import { normalizeUrl } from "@/lib/collection";
+import { fitsNormalizedUrlColumn } from "@/lib/collection-rules";
 import { json } from "@/lib/internal-auth";
 import { buildNewsMailPickPath, isHttpUrl, SHARE_TITLE_MAX_LENGTH } from "@/lib/share-inbox";
 import { createSharedArticle, type SharedArticleBusiness } from "@/lib/shared-article";
 
 export const runtime = "nodejs";
 
-/** `industry_information.normalizedUrl`の列幅。超えるURLは登録できない。 */
-const MAX_NORMALIZED_URL_LENGTH = 512;
 const MAX_TEXT_LENGTH = 5000;
 
 /**
@@ -32,7 +31,7 @@ export async function POST(request: Request) {
   const business = input.business === "DELIVERY" || input.business === "LOCKER" ? (input.business as SharedArticleBusiness) : null;
 
   if (!url || !isHttpUrl(url)) return json({ error: "invalid_url", message: "記事のURLを確認してください" }, 400);
-  if (normalizeUrl(url).length > MAX_NORMALIZED_URL_LENGTH) return json({ error: "url_too_long", message: "URLが長すぎるため登録できません" }, 400);
+  if (!fitsNormalizedUrlColumn(normalizeUrl(url))) return json({ error: "url_too_long", message: "URLが長すぎるため登録できません" }, 400);
   if (!title) return json({ error: "invalid_title", message: "タイトルを入力してください" }, 400);
   if (title.length > SHARE_TITLE_MAX_LENGTH) return json({ error: "invalid_title", message: `タイトルは${SHARE_TITLE_MAX_LENGTH}文字までです` }, 400);
   if (!business) return json({ error: "invalid_business", message: "事業を選んでください" }, 400);

@@ -323,6 +323,15 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
    （`src/lib/triage.ts`の`decideWeeklyCap()`。後述「記事の仕分け」）。置換/除外は必ず
    `CollectionRun.excludedArticles`（JSON配列）・`excludedCount`に記録してから実行する
 
+**記事1件の登録失敗で実行全体を止めない**（#170）。`runDailyCollection()`のループは
+`importWeeklyReport()`と同じく記事単位で`try/catch`し、失敗は`errors`へ`ARTICLE_INSERT_FAILED`として
+積んで`PARTIAL`にする（フィード全滅、または登録しようとした候補が全滅のときだけ`FAILED`。
+`src/lib/collection-rules.ts`の`decideDailyRunStatus()`）。ループが例外で抜けると`CollectionRun`が
+`RUNNING`のまま残り、新着通知も飛ばない。**Prismaの生のエラー文は`errors`にも応答にも載せず、
+サーバーログへ出す**（`/api/collection/daily`の500応答も固定の`collection_failed`）。
+`normalizedUrl`（`VarChar(512)`）に収まらないURL（Google NewsのリダイレクトURLは長くなりやすい）は、
+`parseFeed()`の段階で候補から落とす（`fitsNormalizedUrlColumn()`。`/api/articles/shared`と共通）。
+
 イベント判定はヒューリスティック（LLMを使わない単語一致・日付近さ）のため、発表主体名の
 表記揺れ等で誤統合・未統合が起こり得る。より高精度な判定が要るときは別Issueで検討する。
 
