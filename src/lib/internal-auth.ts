@@ -36,19 +36,37 @@ export function requireShareShortcutToken(request: Request): NextResponse | null
   return requireBearerSecret(request, process.env.SHARE_SHORTCUT_TOKEN, "share_shortcut_not_configured");
 }
 
+/**
+ * 日次収集（`POST /api/collection/daily`）を定期実行から呼ぶときのシークレット照合（#173）。
+ *
+ * このAPIはログイン済みの本人も呼べるため、他と違って「不一致ならその場で401」ではなく、
+ * 真偽だけを返して呼び出し側がセッション認証へ続けられるようにする。未設定なら常にfalse
+ * （素通りにはしない）。ヘッダーは`Authorization: Bearer`だけを受ける。
+ */
+export function hasCollectionCronSecret(request: Request): boolean {
+  const expected = process.env.COLLECTION_CRON_SECRET;
+  if (!expected) return false;
+  const presented = readBearerToken(request);
+  return presented !== null && isEqualConstantTime(presented, expected);
+}
+
 function requireBearerSecret(request: Request, expected: string | undefined, notConfiguredError: string): NextResponse | null {
   // 未設定を「素通り」にはしない。設定漏れがそのまま認証なしの公開に化けるのを防ぐ。
   if (!expected) {
     return json({ error: notConfiguredError }, 503);
   }
 
-  const header = request.headers.get("authorization");
-  const presented = header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
+  const presented = readBearerToken(request);
   if (!presented || !isEqualConstantTime(presented, expected)) {
     return json({ error: "unauthorized" }, 401);
   }
 
   return null;
+}
+
+function readBearerToken(request: Request): string | null {
+  const header = request.headers.get("authorization");
+  return header?.startsWith("Bearer ") ? header.slice("Bearer ".length) : null;
 }
 
 /** 認証結果も内容も、その時点の値だけが意味を持つ。経路上に残さない。 */
