@@ -32,7 +32,10 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 - ログイン可否は `ALLOWED_GOOGLE_EMAILS`（カンマ区切り）で絞る。DBにユーザーテーブルは持たない
 - `src/lib/auth.ts` の `getCurrentUser()` は「未ログイン」と「Supabaseへ疎通できず今は確認できない
   （`AuthRetryableFetchError` / 429）」を区別する。後者をログイン画面へ差し戻すと、電波の悪い
-  場所で開いただけの利用者がログインし直しになるため
+  場所で開いただけの利用者がログインし直しになるため。`src/proxy.ts`も同じ基準
+  （`src/lib/auth-error.ts`の`isRetryableAuthError`）で、この2種類のエラーのときは`/login`へ
+  リダイレクトせず素通しする（#169）。proxyが先に差し戻すと、matcher対象の`/`と`/dashboard`配下では
+  ページ側の`unavailable`分岐（「認証状態を確認できませんでした」）に届かない
 
 ### リダイレクト先のoriginは`request.url`から作らない
 
@@ -311,10 +314,23 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
    統合元URL・変更内容から生成した`updateReason`・`updatedByRunId`を記録する
 3. マッチしなければ新規イベントとして扱い、**事業ごと週15件（合計30件）**の上限を適用する
    （#94で5件／10件から広げた）。上限に達している場合、重要度→一次情報かどうか→公開日時の順で
-   新規候補が既存の最弱記事より優先度が高ければ最弱記事を削除して置換、そうでなければ新規候補を
-   除外する。**不採用の記事は上限に数えず、人が採用した記事は置換の対象にしない**
+   新規候補が既存の最弱記事より優先度が高ければ最弱記事を置換、そうでなければ新規候補を
+   除外する。**置換は行を削除せず、`weeklyCandidate: false`（`reviewedAt`は`null`のまま＝「AIが
+   対象外と判定」と同じ扱い）にして隠し、`updateReason`に置き換えた旨を残す**（#171）。行を消すと
+   `ArticleAnalysis`・`ArticleAnalysisJob`がカスケードで消え（実行中のジョブならポーラーの報告が
+   404になる）、`normalizedUrl`の一意制約も消えて、翌日のRSSに同じ記事が残っていれば未判定として
+   登録し直される。**不採用の記事は上限に数えず、人が採用した記事は置換の対象にしない**
    （`src/lib/triage.ts`の`decideWeeklyCap()`。後述「記事の仕分け」）。置換/除外は必ず
    `CollectionRun.excludedArticles`（JSON配列）・`excludedCount`に記録してから実行する
+
+**記事1件の登録失敗で実行全体を止めない**（#170）。`runDailyCollection()`のループは
+`importWeeklyReport()`と同じく記事単位で`try/catch`し、失敗は`errors`へ`ARTICLE_INSERT_FAILED`として
+積んで`PARTIAL`にする（フィード全滅、または登録しようとした候補が全滅のときだけ`FAILED`。
+`src/lib/collection-rules.ts`の`decideDailyRunStatus()`）。ループが例外で抜けると`CollectionRun`が
+`RUNNING`のまま残り、新着通知も飛ばない。**Prismaの生のエラー文は`errors`にも応答にも載せず、
+サーバーログへ出す**（`/api/collection/daily`の500応答も固定の`collection_failed`）。
+`normalizedUrl`（`VarChar(512)`）に収まらないURL（Google NewsのリダイレクトURLは長くなりやすい）は、
+`parseFeed()`の段階で候補から落とす（`fitsNormalizedUrlColumn()`。`/api/articles/shared`と共通）。
 
 イベント判定はヒューリスティック（LLMを使わない単語一致・日付近さ）のため、発表主体名の
 表記揺れ等で誤統合・未統合が起こり得る。より高精度な判定が要るときは別Issueで検討する。
@@ -343,7 +359,7 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
 - **収集の上限を「1回10件・事業ごと週5件」から「1回30件・事業ごと週15件」へ広げた**
   （`src/lib/collection.ts`の`COLLECTION_LIMIT`・`BUSINESS_WEEKLY_LIMIT`）。週あたり上限の
   判定は`decideWeeklyCap()`（`src/lib/triage.ts`、純粋関数で`pnpm test`の対象）に寄せ、
-  **不採用の記事は上限に数えず、人が採用した記事は置換で削除しない**。数えると無関係な記事が
+  **不採用の記事は上限に数えず、人が採用した記事は置換で外さない**。数えると無関係な記事が
   枠を埋め続け、上限を広げた意味が無くなる。置き換えてよい記事（未判定）が1件も無ければ新規
   候補を除外する。同一イベント判定（`findEventMatch()`）は不採用の記事も含めて行うため、
   不採用にした発表の転載は不採用の記事へ統合されたまま隠れ、新しい未判定として出直してこない
@@ -486,7 +502,12 @@ AIDE側がマージされるまでエンドツーエンドの送信は動かな�
   ディスク・DBには書かず、画面が一度受け取るか10分経つと消す。上限は20枚・合計10MB・同時3件で、
   **本番のNodeはヒープ128MB・320MBで再起動**（`deploy/ecosystem.config.js`）なのでこれ以上は
   上げない。PM2がforkの1プロセスであることが前提で、複数プロセスにすると受け取ったプロセスと
-  読み出すプロセスが食い違う
+  読み出すプロセスが食い違う。**上限は`formData()`で本文を読む前に`Content-Length`でも見る**
+  （#172。`isRequestBodyTooLarge()`。合計10MB＋フォームの余白1MBを超えたら413／`shareError=too_large`）。
+  `formData()`は本文を全部メモリへ読み込み、さらに`arrayBuffer()`でコピーするため、読んだ後の判定では
+  Androidが縮小前の写真をまとめて送ったときに`max_memory_restart`へ近づき、再起動で置き場の他の共有も
+  消える。`Content-Length`が無い（チャンク転送）リクエストは判定できず、従来どおり読んだ後の
+  `validateSharedFiles()`で断る
 - **iPhoneのショートカットは複数枚を1回のリクエストで送れない**（#163）。フォームの「ファイル」
   フィールドは、リストを渡しても先頭の1枚しか送らない（キーを`files[]`にしても同じ）。そのため
   ショートカットは「繰り返す」で1枚ずつ送り、共通の`batch`（まとめ用ID）をフォームに付ける。同じ

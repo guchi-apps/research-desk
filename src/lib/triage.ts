@@ -86,7 +86,8 @@ export function countsTowardWeeklyCap(fields: TriageFields): boolean {
   return fields.weeklyCandidate;
 }
 
-/** 上限到達時に置き換え（削除）てよい記事かどうか。人が採用した記事は消さない。 */
+/** 上限到達時に置き換え（週報候補から外して隠す。削除はしない、#171）てよい記事かどうか。
+ * 人が採用した記事は外さない。 */
 export function isReplaceable(fields: TriageFields): boolean {
   return fields.reviewedAt === null && fields.weeklyCandidate;
 }

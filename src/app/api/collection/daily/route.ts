@@ -15,6 +15,8 @@ export async function POST(request: Request) {
     await notifyNewCandidates(result, `${getRequestOrigin(request)}/dashboard`);
     return NextResponse.json(result);
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : "collection_failed" }, { status: 500 });
+    // Prismaの生のエラー文などを応答へ載せない。詳細はサーバーログへ出す（#170）。
+    console.error("日次収集に失敗しました", error);
+    return NextResponse.json({ error: "collection_failed" }, { status: 500 });
   }
 }
