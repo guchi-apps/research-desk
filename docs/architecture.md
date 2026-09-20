@@ -32,7 +32,10 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 - ログイン可否は `ALLOWED_GOOGLE_EMAILS`（カンマ区切り）で絞る。DBにユーザーテーブルは持たない
 - `src/lib/auth.ts` の `getCurrentUser()` は「未ログイン」と「Supabaseへ疎通できず今は確認できない
   （`AuthRetryableFetchError` / 429）」を区別する。後者をログイン画面へ差し戻すと、電波の悪い
-  場所で開いただけの利用者がログインし直しになるため
+  場所で開いただけの利用者がログインし直しになるため。`src/proxy.ts`も同じ基準
+  （`src/lib/auth-error.ts`の`isRetryableAuthError`）で、この2種類のエラーのときは`/login`へ
+  リダイレクトせず素通しする（#169）。proxyが先に差し戻すと、matcher対象の`/`と`/dashboard`配下では
+  ページ側の`unavailable`分岐（「認証状態を確認できませんでした」）に届かない
 
 ### リダイレクト先のoriginは`request.url`から作らない
 

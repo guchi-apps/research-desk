@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { isRetryableAuthError } from "@/lib/auth-error";
 import { DEV_LOGIN_COOKIE_NAME, verifyDevLoginCookieValue } from "@/lib/dev-login";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,16 +16,6 @@ function isAllowedEmail(email: string): boolean {
     .map((value) => value.trim())
     .filter(Boolean);
   return allowed.includes(email);
-}
-
-// SupabaseへのリクエストがSDK内部で失敗すると、getUser()は未ログインと同じ user: null を返す。
-// 通信不達（AuthRetryableFetchError）とレート制限（429）は「今は確認できない」として区別しないと、
-// 電波の悪い場所で開いただけの利用者がログイン画面へ差し戻される
-// （guchi-apps/docs の knowledge/supabase.md）。isAuthRetryableFetchErrorは@supabase/supabase-jsから
-// 再公開されていないため、判定を自前で持つ。
-function isRetryableAuthError(error: { name?: string; status?: number } | null): boolean {
-  if (!error) return false;
-  return error.name === "AuthRetryableFetchError" || error.status === 429;
 }
 
 async function getDevLoginEmail(): Promise<string | null> {
