@@ -18,6 +18,11 @@ export const SHARE_INBOX_TTL_MS = 10 * 60 * 1000;
 export const SHARE_INBOX_MAX_FILES = 20;
 /** 1件あたりの合計。本番のNodeはヒープ128MB・320MBで再起動なので、置けるのは数件ぶんまで。 */
 export const SHARE_INBOX_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
+/**
+ * 1回のリクエストとして受け付ける本文の上限。写真の合計上限に、フォームの余白（multipartの
+ * 境界・ファイルごとのヘッダー・`title`/`text`/`url`/`batch`欄）ぶんを足した値。
+ */
+export const SHARE_INBOX_MAX_REQUEST_BYTES = SHARE_INBOX_MAX_TOTAL_BYTES + 1024 * 1024;
 /** 同時に置いておく件数。超えたら古いものから捨てる。 */
 export const SHARE_INBOX_MAX_ENTRIES = 3;
 export const SHARE_TITLE_MAX_LENGTH = 200;
@@ -53,7 +58,19 @@ export function validateSharedFiles(files: SharedFile[]): Exclude<PutResult, { o
   return null;
 }
 
-const BATCH_ID_PATTERN = /^[A-Za-z0-9._:-]{1,64}$/;
+/**
+ * `Content-Length`の値から、本文を読む前に断ってよい大きさかを判定する（#172）。
+ * `request.formData()`は本文を全部メモリへ読み込むため、上限は読み込む前に見る必要がある。
+ * ヘッダーが無い（チャンク転送）・数値でない場合は判定できないので`false`を返し、読み込んだ後の
+ * `validateSharedFiles()`に任せる。
+ */
+export function isRequestBodyTooLarge(contentLength: string | null | undefined): boolean {
+  const trimmed = (contentLength ?? "").trim();
+  if (!/^\d+$/.test(trimmed)) return false;
+  return Number(trimmed) > SHARE_INBOX_MAX_REQUEST_BYTES;
+}
+
+const BATCH_ID_PATTERN =/^[A-Za-z0-9._:-]{1,64}$/;
 
 /**
  * まとめ用IDを整える。空なら`null`（まとめない）。使える文字・長さを外れていれば`"invalid"`。

@@ -6,12 +6,14 @@ import {
   extractUrl,
   fallbackArticleTitle,
   hasPendingShare,
+  isRequestBodyTooLarge,
   normalizeBatchId,
   normalizeSharedText,
   putShareEntry,
   takeShareEntry,
   SHARE_INBOX_MAX_ENTRIES,
   SHARE_INBOX_MAX_FILES,
+  SHARE_INBOX_MAX_REQUEST_BYTES,
   SHARE_INBOX_MAX_TOTAL_BYTES,
   SHARE_INBOX_TTL_MS,
   SHARE_TEXT_QUERY_MAX_LENGTH,
@@ -117,6 +119,26 @@ describe("putShareEntry（batchでまとめる。#163）", () => {
     putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, 0, "x");
     putShareEntry(store, { title: "", files: [photo()], batch: "b1" }, SHARE_INBOX_TTL_MS - 1, "y");
     assert.equal(takeShareEntry(store, "x", SHARE_INBOX_TTL_MS + 1), null);
+  });
+});
+
+describe("isRequestBodyTooLarge（#172）", () => {
+  it("上限（写真の合計＋フォームの余白）を超えるContent-Lengthは断る", () => {
+    assert.equal(isRequestBodyTooLarge(String(SHARE_INBOX_MAX_REQUEST_BYTES + 1)), true);
+  });
+
+  it("上限ちょうどまでと、写真の合計上限ちょうどの共有は通す", () => {
+    assert.equal(isRequestBodyTooLarge(String(SHARE_INBOX_MAX_REQUEST_BYTES)), false);
+    assert.equal(isRequestBodyTooLarge(String(SHARE_INBOX_MAX_TOTAL_BYTES)), false);
+    assert.ok(SHARE_INBOX_MAX_REQUEST_BYTES > SHARE_INBOX_MAX_TOTAL_BYTES);
+  });
+
+  it("ヘッダーが無い・数値でないときは判定できないので通す", () => {
+    assert.equal(isRequestBodyTooLarge(null), false);
+    assert.equal(isRequestBodyTooLarge(undefined), false);
+    assert.equal(isRequestBodyTooLarge(""), false);
+    assert.equal(isRequestBodyTooLarge("abc"), false);
+    assert.equal(isRequestBodyTooLarge("-1"), false);
   });
 });
 
