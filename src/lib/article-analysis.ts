@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/db";
 import { canAcceptReport, classifyFailure, FAILURE_MESSAGE_LIMIT, isDuplicateJobError, LEASE_SECONDS, MAX_CLAIM_JOBS, shouldAutoExcludeFromWeekly, truncateFailureMessage, type FailureKindValue, type FailureSignal, type JobStatusValue } from "@/lib/analysis-job-rules";
 import { claimWeeklyBriefJobs, listActiveWeeklyBriefJobs, releaseExpiredWeeklyBriefLeases, reportWeeklyBriefResult } from "@/lib/weekly-brief";
+import { claimCollectionSearchJobs, releaseExpiredCollectionSearchLeases, reportCollectionSearchResult } from "@/lib/collection-search";
 import { buildAnalysisPrompt, buildOutputSchema, parseAnalysisPayload, parseAnnouncedOn, type AnalysisImportanceValue, type AnalysisPeerArticle, type AnalysisRelevanceValue } from "@/lib/analysis-prompt";
 import { getWeekRange, weekCondition } from "@/lib/industry-information";
 
@@ -50,11 +51,13 @@ export async function enqueueAnalysisJob(articleId: string, requestedBy: string 
 // --- ジョブの取得（ポーラー向け） -------------------------------------------------------
 
 /**
- * ポーラーへ渡すジョブ1件。**ポーラーが読むのは`jobId`・`prompt`・`outputSchema`だけ**なので、
- * 週の総括（#110。`kind: "weekly_brief"`）を同じ配列へ混ぜても、ポーラーのスクリプトを
- * 配り直す必要はない。`articleId`は記事解析のときだけ入り、総括ではnullになる。
+ * ポーラーへ渡すジョブ1件。**ポーラーが読むのは`jobId`・`prompt`・`outputSchema`（と任意の
+ * `timeoutSeconds`）だけ**なので、週の総括（#110。`kind: "weekly_brief"`）や業界ニュースの
+ * 収集（`kind: "collection_search"`）を同じ配列へ混ぜても、ポーラーの読み取り側は変わらない。
+ * `articleId`は記事解析のときだけ入り、それ以外ではnullになる。`timeoutSeconds`は実行上限を
+ * 既定（記事1件ぶん）より長くしたいジョブ（収集）だけが持つ。
  */
-export type ClaimedJob = { jobId: string; kind: "article" | "weekly_brief"; articleId: string | null; articleTitle: string; prompt: string; outputSchema: Record<string, unknown>; leaseExpiresAt: string };
+export type ClaimedJob = { jobId: string; kind: "article" | "weekly_brief" | "collection_search"; articleId: string | null; articleTitle: string; prompt: string; outputSchema: Record<string, unknown>; leaseExpiresAt: string; timeoutSeconds?: number };
 export type ClaimInput = { host: string; maxJobs: number; codexAuthMode: string | null; codexVersion: string | null };
 
 /**
@@ -86,6 +89,7 @@ export async function claimAnalysisJobs(input: ClaimInput, now = new Date()): Pr
   // 総括ジョブ（#110）の回収は取得の枠が残っているかに関わらず行う。記事の解析で枠が
   // 埋まっている間に止まると、落ちた総括がRUNNINGのまま戻らなくなる。
   await releaseExpiredWeeklyBriefLeases(now);
+  await releaseExpiredCollectionSearchLeases(now);
 
   const take = Math.min(Math.max(input.maxJobs, 0), MAX_CLAIM_JOBS);
   if (take === 0) return [];
@@ -124,6 +128,14 @@ export async function claimAnalysisJobs(input: ClaimInput, now = new Date()): Pr
       claimed.push({ jobId: brief.jobId, kind: "weekly_brief", articleId: null, articleTitle: brief.label, prompt: brief.prompt, outputSchema: brief.outputSchema, leaseExpiresAt: brief.leaseExpiresAt });
     }
   }
+  // 業界ニュースの収集は日次の定期実行で、人が結果を待っているわけではない。記事の解析・総括の
+  // どちらよりも後ろにして、余った枠でだけ取る。
+  if (claimed.length < take) {
+    const searches = await claimCollectionSearchJobs(input.host, take - claimed.length, now);
+    for (const search of searches) {
+      claimed.push({ jobId: search.jobId, kind: "collection_search", articleId: null, articleTitle: search.label, prompt: search.prompt, outputSchema: search.outputSchema, leaseExpiresAt: search.leaseExpiresAt, timeoutSeconds: search.timeoutSeconds });
+    }
+  }
   return claimed;
 }
 
@@ -154,9 +166,13 @@ export type ReportResult = { ok: true; status: JobStatusValue } | { ok: false; r
 /** ポーラーからの結果を保存し、ジョブと記事の状態を進める。 */
 export async function reportAnalysisResult(input: ReportInput, now = new Date()): Promise<ReportResult> {
   const job = await prisma.articleAnalysisJob.findUnique({ where: { id: input.jobId }, select: { id: true, articleId: true, status: true } });
-  // 記事解析のジョブに無ければ週の総括（#110）として扱う。ポーラーはどちらもjobIdだけを
-  // 送ってくるため、振り分けはここで行う（報告APIの契約は変えない）。
-  if (!job) return reportWeeklyBriefResult(input, now);
+  // 記事解析のジョブに無ければ週の総括（#110）、それにも無ければ業界ニュースの収集として扱う。
+  // ポーラーはどれもjobIdだけを送ってくるため、振り分けはここで行う（報告APIの契約は変えない）。
+  if (!job) {
+    const brief = await reportWeeklyBriefResult(input, now);
+    if (brief.ok || brief.reason !== "not_found") return brief;
+    return reportCollectionSearchResult(input, now);
+  }
   // 期限切れで一度QUEUEDへ戻ったジョブへ、遅れて届いた結果は捨てる（次の実行が正になる）。
   if (!canAcceptReport(job.status)) return { ok: false, reason: "not_running" };
 

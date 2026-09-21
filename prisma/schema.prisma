@@ -291,3 +291,40 @@ model WeeklyBriefJob {
   @@index([weekStart, queuedAt])
   @@map("weekly_brief_jobs")
 }
+
+// ChatGPT定期タスクの代わりに、Codex CLI（Web検索）で業界ニュースを集める「収集ジョブ」。
+// 記事解析・週の総括と同じVPS常駐ポーラーが実行する（src/lib/collection-search.ts）。
+// テーブルを分けたのは WeeklyBriefJob と同じ理由（ArticleAnalysisJob は articleId が必須で
+// 記事側の analysisStatus と連動するため、相乗りさせると前提が崩れる）。
+model CollectionSearchJob {
+  id String @id @default(cuid())
+  // 同時に1本に絞る鍵。`QUEUED`・`RUNNING`の間だけJSTの日付（YYYY-MM-DD）が入り、終了時にnullへ戻す
+  // （WeeklyBriefJob.activeKeyと同じ作り）。
+  activeKey      String?              @unique
+  status         AnalysisJobStatus    @default(QUEUED)
+  requestedBy    String?
+  queuedAt       DateTime             @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  leaseExpiresAt DateTime?
+  workerHost     String?
+  failureKind    AnalysisFailureKind?
+  failureMessage String?              @db.Text
+  // 取り込み結果。CollectionRun（AIDE経由の週報登録・RSS収集と同じ実行記録）と件数を突き合わせて
+  // 「ChatGPT側とどれだけ重なったか」を見比べられるよう、件数はジョブ側にも写しておく。
+  collectionRunId String?
+  foundCount      Int?
+  droppedCount    Int?
+  insertedCount   Int?
+  mergedCount     Int?
+  duplicateCount  Int?
+  excludedCount   Int?
+  model           String?
+  codexAuthMode   String?
+  durationMs      Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status, queuedAt])
+  @@map("collection_search_jobs")
+}

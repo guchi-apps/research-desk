@@ -141,6 +141,15 @@ async function readCodexVersion() {
 }
 
 /**
+ * このジョブの実行上限（ミリ秒）。サーバーがジョブに`timeoutSeconds`を付けたとき（Web検索で
+ * 集める収集ジョブ。記事1件の解析より長くかかる）はそれに従い、無ければ既定値を使う。
+ * サーバー側で保持期限（リース）より短い値にしてあるので、ここでは検証しない。
+ */
+function jobTimeoutMs(job) {
+  return Number.isFinite(job.timeoutSeconds) && job.timeoutSeconds > 0 ? job.timeoutSeconds * 1000 : JOB_TIMEOUT_MS;
+}
+
+/**
  * 1件のジョブをCodexで実行する。
  *
  * `--output-schema`で最終応答の形を縛り、`-o`でその応答だけをファイルへ書かせる
@@ -176,7 +185,7 @@ async function runCodex(job, workDir) {
     const child = spawn(CODEX_BIN, args, { env, cwd: workDir, stdio: ["pipe", "pipe", "pipe"] });
     let stderr = "";
     let timedOut = false;
-    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, JOB_TIMEOUT_MS);
+    const timer = setTimeout(() => { timedOut = true; child.kill("SIGKILL"); }, jobTimeoutMs(job));
 
     // 標準出力は最終応答と同じ内容を含むため保持しない（ログにも残さない）。
     child.stdout.on("data", () => {});
