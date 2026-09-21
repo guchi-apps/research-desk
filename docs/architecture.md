@@ -21,7 +21,7 @@ TypeScript + Tailwind CSS v4 + Prisma 6（MariaDB）+ Supabase Auth（Google）�
 | `/login` | ログイン画面（`/auth/signin`への素のリンクのみ。JS不要） |
 | `/auth/signin` | Route Handler。サーバー側でOAuth認可URLを組み立てて302 |
 | `/auth/callback` | Route Handler。`code`をセッションと交換し`/dashboard`（業界ニュース画面）へ |
-| `/auth/signout` | Route Handler（POST）。セッションを破棄し`/login`へ |
+| `/auth/signout` | Route Handler（POST）。このアプリのセッションだけを破棄し`/login`へ（`signOut({ scope: "local" })`。引数なしはglobalで、共有Supabaseの他アプリ・他端末まで失効させる。`src/lib/auth-signout.ts`） |
 | `/api/dev/login` | CI・ローカル開発専用のバイパス（`NODE_ENV!=="production"`かつ`CI_LOGIN_BYPASS_SECRET`設定時のみ有効） |
 
 - `src/proxy.ts`（Next.js 16の`middleware.ts`相当）は`/`と`/dashboard`配下だけを保護対象に
