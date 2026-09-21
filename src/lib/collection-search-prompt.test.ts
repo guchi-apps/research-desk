@@ -54,13 +54,20 @@ describe("buildCollectionSearchPrompt", () => {
   it("URLを推測で作らせない", () => {
     assert.ok(buildCollectionSearchPrompt(NOW).includes("URLを推測で作らない"));
   });
+
+  it("不採用記事と調整指示を基準として渡す", () => {
+    const prompt = buildCollectionSearchPrompt(NOW, { policy: "人事記事は採用しない", instruction: "ポスト社長を避ける", rejectedArticles: ["ポスト社長に就任"] });
+    assert.ok(prompt.includes("人事記事は採用しない"));
+    assert.ok(prompt.includes("ポスト社長を避ける"));
+    assert.ok(prompt.includes("ポスト社長に就任"));
+  });
 });
 
 describe("buildCollectionSearchSchema", () => {
   it("記事の全項目をrequiredにし、余計なキーを許さない（構造化出力の制約）", () => {
     const schema = buildCollectionSearchSchema() as { required: string[]; additionalProperties: boolean; properties: { articles: { maxItems: number; items: { required: string[]; properties: Record<string, unknown> } } } };
     assert.equal(schema.additionalProperties, false);
-    assert.deepEqual(schema.required, ["articles"]);
+    assert.deepEqual(schema.required, ["articles", "nextPolicy"]);
     const items = schema.properties.articles.items;
     assert.equal(schema.properties.articles.maxItems, COLLECTION_SEARCH_ARTICLE_LIMIT);
     assert.deepEqual([...items.required].sort(), Object.keys(items.properties).sort());
@@ -106,7 +113,7 @@ describe("parseCollectionSearchPayload", () => {
 
   it("記事が0件でも成功にする（該当が無い日がありうる）", () => {
     const result = parseCollectionSearchPayload({ articles: [] });
-    assert.deepEqual(result, { ok: true, articles: [], found: 0, dropped: 0 });
+    assert.deepEqual(result, { ok: true, articles: [], found: 0, dropped: 0, nextPolicy: null });
   });
 
   it("オブジェクトでない・articlesが配列でない応答は失敗", () => {

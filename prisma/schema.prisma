@@ -56,22 +56,22 @@ enum CollectionRunStatus {
 }
 
 model CollectionRun {
-  id              String            @id @default(cuid())
-  startedAt       DateTime          @default(now())
-  finishedAt      DateTime?
-  targetFrom      DateTime
-  targetTo        DateTime
-  supplementalFrom DateTime?
-  status          CollectionRunStatus @default(RUNNING)
-  fetchedCount    Int               @default(0)
-  selectedCount   Int               @default(0)
-  insertedCount   Int               @default(0)
-  duplicateCount  Int               @default(0)
-  mergedCount     Int               @default(0)
-  excludedCount   Int               @default(0)
-  failedCount     Int               @default(0)
-  errors          Json?
-  excludedArticles Json?
+  id                         String                @id @default(cuid())
+  startedAt                  DateTime              @default(now())
+  finishedAt                 DateTime?
+  targetFrom                 DateTime
+  targetTo                   DateTime
+  supplementalFrom           DateTime?
+  status                     CollectionRunStatus   @default(RUNNING)
+  fetchedCount               Int                   @default(0)
+  selectedCount              Int                   @default(0)
+  insertedCount              Int                   @default(0)
+  duplicateCount             Int                   @default(0)
+  mergedCount                Int                   @default(0)
+  excludedCount              Int                   @default(0)
+  failedCount                Int                   @default(0)
+  errors                     Json?
+  excludedArticles           Json?
   industryInformation        IndustryInformation[] @relation("IndustryInformationCollectionRun")
   updatedIndustryInformation IndustryInformation[] @relation("IndustryInformationUpdatedByRun")
 
@@ -85,56 +85,56 @@ enum IndustryPeriodScope {
 }
 
 model IndustryInformation {
-  id                 String                  @id @default(cuid())
-  business           IndustryBusiness
-  informationType    IndustryInformationType
-  title              String
-  originalUrl        String                  @db.Text
-  normalizedUrl      String                  @unique @db.VarChar(512)
-  urlHash            String                  @unique @db.Char(64)
-  sourceName         String
-  publisher          String?
-  isPrimarySource    Boolean                 @default(false)
-  publishedAt        DateTime?
-  occurredAt         DateTime?
-  collectedAt        DateTime                @default(now())
-  content            String?                 @db.Text
-  summary            String?                 @db.Text
-  extractedMetrics   Json?
-  implications       String?                 @db.Text
-  importance         IndustryImportance      @default(REFERENCE)
-  targetCompany      String?
-  targetProduct      String?
-  keywords           Json?
-  tags               Json?
-  periodScope        IndustryPeriodScope     @default(IN_SCOPE)
-  collectionRunId    String?
-  collectionRun      CollectionRun?          @relation("IndustryInformationCollectionRun", fields: [collectionRunId], references: [id], onDelete: SetNull)
-  mergedSources      Json?
-  updateReason       String?                 @db.Text
-  updatedByRunId     String?
-  updatedByRun       CollectionRun?          @relation("IndustryInformationUpdatedByRun", fields: [updatedByRunId], references: [id], onDelete: SetNull)
+  id               String                  @id @default(cuid())
+  business         IndustryBusiness
+  informationType  IndustryInformationType
+  title            String
+  originalUrl      String                  @db.Text
+  normalizedUrl    String                  @unique @db.VarChar(512)
+  urlHash          String                  @unique @db.Char(64)
+  sourceName       String
+  publisher        String?
+  isPrimarySource  Boolean                 @default(false)
+  publishedAt      DateTime?
+  occurredAt       DateTime?
+  collectedAt      DateTime                @default(now())
+  content          String?                 @db.Text
+  summary          String?                 @db.Text
+  extractedMetrics Json?
+  implications     String?                 @db.Text
+  importance       IndustryImportance      @default(REFERENCE)
+  targetCompany    String?
+  targetProduct    String?
+  keywords         Json?
+  tags             Json?
+  periodScope      IndustryPeriodScope     @default(IN_SCOPE)
+  collectionRunId  String?
+  collectionRun    CollectionRun?          @relation("IndustryInformationCollectionRun", fields: [collectionRunId], references: [id], onDelete: SetNull)
+  mergedSources    Json?
+  updateReason     String?                 @db.Text
+  updatedByRunId   String?
+  updatedByRun     CollectionRun?          @relation("IndustryInformationUpdatedByRun", fields: [updatedByRunId], references: [id], onDelete: SetNull)
   // canonicalId/canonical/relatedReprintsは#43以降は書き込まない（過去データ互換のため列のみ残す）。
   // 転載の統合はmergedSources／updateReason／updatedByRunIdで表現する（docs/architecture.md参照）。
-  canonicalId        String?
-  canonical           IndustryInformation?   @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
-  relatedReprints    IndustryInformation[]  @relation("IndustryInformationCanonical")
+  canonicalId      String?
+  canonical        IndustryInformation?    @relation("IndustryInformationCanonical", fields: [canonicalId], references: [id], onDelete: SetNull)
+  relatedReprints  IndustryInformation[]   @relation("IndustryInformationCanonical")
   // --- AI解析（#79） -----------------------------------------------------------------
   // `analysisStatus`・`analyzedAt`は最新ジョブの状態を写した非正規化列。絞り込みをPrismaの
   // `where`で行うため（週あたり10件でもJS側で絞ると週送り・件数表示がズレる）、ジョブの状態を
   // 変える処理はすべて`src/lib/article-analysis.ts`の同一トランザクション内でここも更新する。
-  analysisStatus     AnalysisJobStatus?
-  analyzedAt         DateTime?
+  analysisStatus   AnalysisJobStatus?
+  analyzedAt       DateTime?
   // 人が確定した内容。AIの生成内容は`ArticleAnalysis`側に残り、ここは上書きしない
   // （`business`・`importance`は人が確定したときだけ書き換わり、`reviewedAt`がその印になる）。
-  weeklyCandidate    Boolean                 @default(true)
-  reviewedAt         DateTime?
-  reviewedBy         String?
-  reviewNote         String?                 @db.Text
-  analysisJobs       ArticleAnalysisJob[]
-  analyses           ArticleAnalysis[]
-  createdAt          DateTime                @default(now())
-  updatedAt          DateTime                @updatedAt
+  weeklyCandidate  Boolean                 @default(true)
+  reviewedAt       DateTime?
+  reviewedBy       String?
+  reviewNote       String?                 @db.Text
+  analysisJobs     ArticleAnalysisJob[]
+  analyses         ArticleAnalysis[]
+  createdAt        DateTime                @default(now())
+  updatedAt        DateTime                @updatedAt
 
   @@index([business, informationType])
   @@index([importance, publishedAt])
@@ -258,12 +258,12 @@ enum WeeklyBriefBasis {
 }
 
 model WeeklyBriefJob {
-  id        String           @id @default(cuid())
-  weekStart DateTime
-  weekEnd   DateTime
-  basis     WeeklyBriefBasis @default(EITHER)
+  id             String               @id @default(cuid())
+  weekStart      DateTime
+  weekEnd        DateTime
+  basis          WeeklyBriefBasis     @default(EITHER)
   /// 総括の対象にした記事ID（画面でチェックが入っていたもの）のJSON配列。
-  articleIds Json
+  articleIds     Json
   // 同じ週の総括を二重に走らせない鍵。`QUEUED`・`RUNNING`の間だけ週の開始日が入り、
   // 終了時にnullへ戻す（ArticleAnalysisJob.activeKeyと同じ作り）。
   activeKey      String?              @unique
@@ -277,15 +277,15 @@ model WeeklyBriefJob {
   failureKind    AnalysisFailureKind?
   failureMessage String?              @db.Text
   // 結果は1ジョブ1件なので、別テーブルにせず同じ行へ持つ。
-  headline      String? @db.Text
-  overview      String? @db.Text
+  headline       String?              @db.Text
+  overview       String?              @db.Text
   /// 注目トピック（`{ label, text }`の配列）。項目が増えても移行なしで持てるようJSONにする。
-  topics        Json?
-  model         String?
-  codexAuthMode String?
-  durationMs    Int?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  topics         Json?
+  model          String?
+  codexAuthMode  String?
+  durationMs     Int?
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
 
   @@index([status, queuedAt])
   @@index([weekStart, queuedAt])
@@ -297,19 +297,19 @@ model WeeklyBriefJob {
 // テーブルを分けたのは WeeklyBriefJob と同じ理由（ArticleAnalysisJob は articleId が必須で
 // 記事側の analysisStatus と連動するため、相乗りさせると前提が崩れる）。
 model CollectionSearchJob {
-  id String @id @default(cuid())
+  id              String               @id @default(cuid())
   // 同時に1本に絞る鍵。`QUEUED`・`RUNNING`の間だけJSTの日付（YYYY-MM-DD）が入り、終了時にnullへ戻す
   // （WeeklyBriefJob.activeKeyと同じ作り）。
-  activeKey      String?              @unique
-  status         AnalysisJobStatus    @default(QUEUED)
-  requestedBy    String?
-  queuedAt       DateTime             @default(now())
-  startedAt      DateTime?
-  finishedAt     DateTime?
-  leaseExpiresAt DateTime?
-  workerHost     String?
-  failureKind    AnalysisFailureKind?
-  failureMessage String?              @db.Text
+  activeKey       String?              @unique
+  status          AnalysisJobStatus    @default(QUEUED)
+  requestedBy     String?
+  queuedAt        DateTime             @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  leaseExpiresAt  DateTime?
+  workerHost      String?
+  failureKind     AnalysisFailureKind?
+  failureMessage  String?              @db.Text
   // 取り込み結果。CollectionRun（AIDE経由の週報登録・RSS収集と同じ実行記録）と件数を突き合わせて
   // 「ChatGPT側とどれだけ重なったか」を見比べられるよう、件数はジョブ側にも写しておく。
   collectionRunId String?
@@ -322,9 +322,19 @@ model CollectionSearchJob {
   model           String?
   codexAuthMode   String?
   durationMs      Int?
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
 
   @@index([status, queuedAt])
   @@map("collection_search_jobs")
+}
+
+// 業界ニュース収集でAIが使う検索・判定基準。個人利用のアプリなので固定IDの1件だけを持つ。
+model CollectionSearchPolicy {
+  id                 Int      @id @default(1)
+  policy             String   @db.Text
+  pendingInstruction String?  @db.Text
+  updatedAt          DateTime @updatedAt
+
+  @@map("collection_search_policy")
 }

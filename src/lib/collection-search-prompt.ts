@@ -78,7 +78,9 @@ const METRICS_MAX_JSON_LENGTH = 2000;
  * 品質を見比べる間は、両者が独立に選んだ結果を比べたい（渡すと重なりが見えなくなる）。
  * 重複はURL一致と同一イベントの統合（#43）が取り込み側で処理する。
  */
-export function buildCollectionSearchPrompt(now: Date): string {
+export type CollectionSearchPolicyContext = { policy: string; instruction: string | null; rejectedArticles: string[] };
+
+export function buildCollectionSearchPrompt(now: Date, context?: CollectionSearchPolicyContext): string {
   const windowStart = new Date(now.getTime() - COLLECTION_SEARCH_WINDOW_DAYS * DAY_MS);
   const supplementStart = new Date(now.getTime() - COLLECTION_SEARCH_SUPPLEMENT_DAYS * DAY_MS);
   return [
@@ -90,6 +92,7 @@ export function buildCollectionSearchPrompt(now: Date): string {
     `- 宅配事業（DELIVERY）: ${DELIVERY_SCOPE}`,
     `- ロッカー事業（LOCKER）: ${LOCKER_SCOPE}`,
     "",
+    ...(context ? ["## 現在の検索・判定基準", "", context.policy, ...(context.rejectedArticles.length ? ["", "利用者が不採用にした記事（同じ傾向を避ける参考）:", ...context.rejectedArticles.map((title) => `- ${title}`)] : []), ...(context.instruction ? ["", "利用者からの調整指示:", context.instruction] : []), "", "この基準と不採用記事を踏まえて記事を選んでください。収集後は nextPolicy に、次回以降に使う改善済みの検索・判定基準を簡潔に書いてください。"] : []),
     "## 対象期間",
     "",
     `- 今日は${formatIsoDate(now)}（JST）です。まず直近${COLLECTION_SEARCH_WINDOW_DAYS}日（${formatIsoDate(windowStart)}以降）に公開・発表された記事から選び、periodScope は IN_SCOPE にします。`,
@@ -129,7 +132,7 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["articles"],
+    required: ["articles", "nextPolicy"],
     properties: {
       articles: {
         type: "array",
@@ -182,6 +185,7 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
           },
         },
       },
+      nextPolicy: { type: "string" },
     },
   };
 }
@@ -211,7 +215,7 @@ export type CollectedArticle = {
 };
 
 export type CollectionSearchParseResult =
-  | { ok: true; articles: CollectedArticle[]; found: number; dropped: number }
+  | { ok: true; articles: CollectedArticle[]; found: number; dropped: number; nextPolicy: string | null }
   | { ok: false; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -328,5 +332,5 @@ export function parseCollectionSearchPayload(raw: unknown): CollectionSearchPars
     articles.push(article);
   }
   if (found > 0 && articles.length === 0) return { ok: false, error: "返ってきた記事がどれも読み取れませんでした" };
-  return { ok: true, articles, found, dropped: found - articles.length };
+  return { ok: true, articles, found, dropped: found - articles.length, nextPolicy: optionalString(raw.nextPolicy, 4000) };
 }
