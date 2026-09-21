@@ -12,8 +12,8 @@
  */
 
 /** 解析の観点。宅配事業・ロッカー事業それぞれで「何を見るか」をプロンプトに埋め込む。 */
-const DELIVERY_SCOPE = "宅配ボックス、郵便ポスト、機能門柱、置き配、防犯（なりすまし受け取り・盗難）、施工性、配送ロボット／ドローン配送";
-const LOCKER_SCOPE = "マルチロッカー、セルフ発送機、PUDO・SMARI・Amazon Hub等の受取／発送／返品、ロッカーの運用・設置・事業性";
+export const DELIVERY_SCOPE = "宅配ボックス、郵便ポスト、機能門柱、置き配、防犯（なりすまし受け取り・盗難）、施工性、配送ロボット／ドローン配送";
+export const LOCKER_SCOPE = "マルチロッカー、セルフ発送機、PUDO・SMARI・Amazon Hub等の受取／発送／返品、ロッカーの運用・設置・事業性";
 
 export type AnalysisRelevanceValue = "DELIVERY" | "LOCKER" | "OUT_OF_SCOPE";
 export type AnalysisImportanceValue = "HIGH" | "MEDIUM" | "REFERENCE";

@@ -811,6 +811,53 @@ VPS常駐ポーラー**（`scripts/codex-analysis-worker.mjs`）が実行する�
 - 画面は総括が`QUEUED`／`RUNNING`の間だけ30秒ごとに`router.refresh()`する。**総括が無くても
   送信はできる**（その場合はメール本文からその節ごと落ちる）
 
+## 業界ニュースの自動収集ジョブ（Codex CLI・Web検索、#189）
+
+これまでChatGPTの定期タスクが毎日20:00に直近7日分を検索・選定・要約し、AIDE経由で
+`POST /api/internal/weekly-report`へ登録していた。その作業を、記事解析（#79）・週の総括（#110）と
+**同じVPS常駐ポーラー**（`scripts/codex-analysis-worker.mjs`）へ移した。RSS収集（題名だけを拾う
+`runDailyCollection()`）は残しており、代替ではなく別経路。
+
+```
+日次cron → POST /api/collection/daily → RSS収集 ＋ 収集ジョブを積む（CollectionSearchJob）
+VPSのポーラー → claim（kind: "collection_search"）→ codex exec ＋ Web検索 → report
+              → parseCollectionSearchPayload() → importWeeklyReport() → CollectionRun・記事
+```
+
+- **ChatGPT定期タスクは止めていない。当面は併用して品質を見比べる**（ユーザー方針）。そのため
+  収集のプロンプトには既登録の記事を渡さず、両者が独立に選んだ結果を比べられるようにしてある
+  （重複はURL一致と同一イベントの統合＝#43が取り込み側で処理する）。件数の上限も週報登録API
+  （全体10件・各事業5件）に揃えた。比べる材料は解析状況画面の「自動収集」欄（Codexが返した件数・
+  新規・統合更新・既存と重複・上限で除外・読めず除外）
+- **取り込みは`importWeeklyReport()`をそのまま呼ぶ**。結果の形（`src/lib/collection-search-prompt.ts`の
+  `CollectedArticle`）を`WeeklyReportArticle`に揃えてあるので、冪等性・統合・週あたり上限・
+  `CollectionRun`への記録はAIDE経由の登録と同じ規則で働く。**取り込んでからジョブを完了にする**——
+  途中で落ちてもリース切れで積み直され、再取り込みはURL一致で二重登録にならない
+- **`CollectionSearchJob`は`ArticleAnalysisJob`・`WeeklyBriefJob`と別テーブル**。理由は総括と同じ
+  （記事解析のテーブルは`articleId`必須で記事側の`analysisStatus`と連動する）。`activeKey`にJSTの日付を
+  入れ、同じ日の収集が待ち・実行中の間は積まない（UNIQUE制約。終了時にnullへ戻すので完了後の再実行は可）
+- **実行の優先順は 記事の解析 → 週の総括 → 収集**（`claimAnalysisJobs()`）。収集は定期実行で、
+  人が結果を待っていないため、余った枠でだけ取る。期限切れの回収は枠に関わらず毎回行う
+- **ポーラーはジョブごとの実行上限を読む**。claimの応答の`timeoutSeconds`（収集は780秒）があれば
+  それに従い、無ければ`ANALYSIS_JOB_TIMEOUT_SECONDS`（既定600秒）。**保持期限（`LEASE_SECONDS`＝900秒）
+  より短くしておくこと**——超えると実行中にリースが切れ、別のポーラーが同じジョブを取り直す
+  （`collection-search-prompt.test.ts`が大小関係を確かめる）。ポーラーのスクリプトを変えたので、
+  この変更のデプロイでワーカーも入れ替わる（`deploy.yml`の`pm2 delete`が両方の名前を挙げている）
+- 積むのは`POST /api/collection/daily`の**先頭**（RSS収集より前）。RSS収集が例外で落ちても収集ジョブは
+  積まれ、積めなくてもRSS収集の結果は成功のまま返す（応答の`collectionSearch`は`queued`・
+  `already_queued`・`failed`）。**新着通知（`notifyNewCandidates()`）は収集ジョブの取り込みでは送らない**
+  ——AIDE経由の週報登録も送っておらず、それに揃えた
+- **結果の検証は寛容側に倒す**。記事の必須項目（事業・題名・URL・媒体名）が欠けた要素、`http(s)`以外のURL、
+  512文字を超えるURL（`normalizedUrl`に収まらず登録で例外になる）は落として続ける。返ってきた記事が
+  1件以上あるのに**1件も読めなかった**ときだけ`INVALID_OUTPUT`にする（形が壊れている可能性が高く、
+  0件の成功と区別が付かなくなるため）。**0件は成功**（該当が無い日はありうる）
+- スキーマは`{ name, value }`の配列で数値を受ける（#90。キー可変のオブジェクトは置けない）。
+  失敗の分類（時間切れ・ログイン切れ・利用枠・出力不正）は記事解析と同じ`classifyFailure()`
+
+**収集プロンプトの初期値はaideの`docs/chatgpt-mcp.md`の指示例（事業ごと5件・7日→30日拡張・示唆と数値の
+付与）と、記事解析と共通の事業の観点（`DELIVERY_SCOPE`・`LOCKER_SCOPE`）から組んだもの。** ChatGPT側で
+実際に使っているプロンプトが手に入ったら`buildCollectionSearchPrompt()`を差し替える。
+
 ## 解析状況画面（`/dashboard/analysis`, #137）
 
 業界ニュース画面上部の「ChatGPT 解析」の帯（`AnalysisStatusStrip`）は、帯全体がこの画面への
@@ -834,3 +881,6 @@ VPS常駐ポーラー**（`scripts/codex-analysis-worker.mjs`）が実行する�
   ままなのはポーラーが取りに来ていないときだけ。画面では「期限切れ（ポーラー停止の可能性）」と出す
 - 表示用の計算（経過時間・期限までの残り・JSTの今日0時など）はPrismaをimportしない
   `src/lib/analysis-queue-view.ts`に置き、`node --test`で確かめている
+- **右カラムの「自動収集」欄は、待ち・実行中・要対応の並び（`orderQueue()`）とは切り離している**（#189）。
+  収集ジョブ（`CollectionSearchJob`）は直近5回を`listRecentCollectionSearchJobs()`で別に読み、状態・所要時間・
+  取り込みの内訳を出す。記事の解析キューと混ぜると、`QueueItem`の`kind`と並び順の前提が広がるため
