@@ -6,6 +6,11 @@ import { ANALYSIS_STATUS_CLASS, ANALYSIS_STATUS_LABELS, FAILURE_KIND_LABELS, for
 import { ATTENTION_LIMIT, AUTO_REFRESH_SECONDS, formatClock, formatDuration, formatLeaseRemaining, formatSnapshotTime, leaseProgress, orderQueue, RECENT_COMPLETED_LIMIT, startOfJstDay } from "@/lib/analysis-queue-view";
 import { getAnalysisOverview, getAnalysisQueueDetail, MAX_CLAIM_JOBS, type QueueItem } from "@/lib/article-analysis";
 import { getCurrentUser } from "@/lib/auth";
+import { listRecentCollectionSearchJobs } from "@/lib/collection-search";
+import { formatDateTime } from "@/lib/jst-week";
+
+// 「自動収集」欄に出す直近の収集ジョブの数。1日1本が基本なので、数日ぶんが見えれば足りる。
+const COLLECTION_JOB_LIMIT = 5;
 
 // 自動更新（router.refresh）のたびに最新の状態を読む。
 export const dynamic = "force-dynamic";
@@ -36,7 +41,7 @@ export default async function AnalysisStatusPage() {
   if (user.status === "unauthenticated") redirect("/login");
 
   const now = new Date();
-  const [overview, detail] = await Promise.all([getAnalysisOverview(), getAnalysisQueueDetail({ recentLimit: RECENT_COMPLETED_LIMIT, attentionLimit: ATTENTION_LIMIT, todayStart: startOfJstDay(now) })]);
+  const [overview, detail, collectionJobs] = await Promise.all([getAnalysisOverview(), getAnalysisQueueDetail({ recentLimit: RECENT_COMPLETED_LIMIT, attentionLimit: ATTENTION_LIMIT, todayStart: startOfJstDay(now) }), listRecentCollectionSearchJobs(COLLECTION_JOB_LIMIT)]);
   const queued = orderQueue(detail.queued);
   const worker = overview.worker;
   const stale = isWorkerStale(worker, now);
@@ -129,6 +134,19 @@ export default async function AnalysisStatusPage() {
             <div><dt>失敗・認証待ち</dt><dd>{detail.today.failed}件</dd></div>
             <div><dt>平均所要時間</dt><dd>{detail.today.averageDurationMs !== null ? formatDuration(detail.today.averageDurationMs) : "—"}</dd></div>
           </dl>
+        </section>
+        <section className="q-panel">
+          <div className="q-head"><h2>自動収集</h2><small>Web検索で集めるニュース。直近{COLLECTION_JOB_LIMIT}回</small></div>
+          {collectionJobs.length === 0 ? <p className="q-empty">まだ実行されていません。日次収集のあとに積まれます。</p> : collectionJobs.map((job) => <div className="cs-job" key={job.id}>
+            <div className="q-meta">
+              <span className={`chip ${ANALYSIS_STATUS_CLASS[job.status]}`}>{ANALYSIS_STATUS_LABELS[job.status]}</span>
+              <span>{formatDateTime(job.queuedAt)}</span>
+              {job.durationMs !== null && <span>所要 {formatDuration(job.durationMs)}</span>}
+            </div>
+            {job.counts && <p className="q-hint">Codexが返した{job.counts.found}件 → 新規 {job.counts.inserted}・統合更新 {job.counts.merged}・既存と重複 {job.counts.duplicate}・上限で除外 {job.counts.excluded}{job.counts.dropped > 0 && `・読めず除外 ${job.counts.dropped}`}</p>}
+            {(job.status === "FAILED" || job.status === "AUTH_REQUIRED") && <p className="q-fail">{job.failureKind ? FAILURE_KIND_LABELS[job.failureKind] : (job.failureMessage ?? "理由は記録されていません")}{job.status === "AUTH_REQUIRED" && " — VPSでChatGPTに再ログインしてください"}</p>}
+          </div>)}
+          <p className="q-hint">ChatGPT定期タスクと併用している間は、「既存と重複」が多いほど両者が選んだ記事が重なっています。</p>
         </section>
       </aside>
     </div>
