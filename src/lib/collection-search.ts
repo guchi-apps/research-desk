@@ -3,6 +3,7 @@ import { canAcceptReport, classifyFailure, isDuplicateJobError, LEASE_SECONDS, t
 import { importWeeklyReport, type WeeklyReportArticle } from "@/lib/collection";
 import { buildCollectionSearchPrompt, buildCollectionSearchSchema, COLLECTION_SEARCH_TIMEOUT_SECONDS, COLLECTION_SEARCH_WINDOW_DAYS, parseCollectionSearchPayload } from "@/lib/collection-search-prompt";
 import { formatIsoDate } from "@/lib/jst-week";
+import { getCollectionSearchPolicy, saveCollectionSearchPolicy } from "@/lib/collection-search-settings";
 
 /**
  * 業界ニュースの「収集ジョブ」（Codex CLIのWeb検索）。
@@ -79,10 +80,12 @@ export async function claimCollectionSearchJobs(host: string, take: number, now 
   for (const candidate of candidates) {
     const updated = await prisma.collectionSearchJob.updateMany({ where: { id: candidate.id, status: "QUEUED" }, data: { status: "RUNNING", startedAt: now, leaseExpiresAt, workerHost: host } });
     if (updated.count === 0) continue;
+    const policy = await getCollectionSearchPolicy();
+    const rejected = await prisma.industryInformation.findMany({ where: { reviewedAt: { not: null }, weeklyCandidate: false }, orderBy: { reviewedAt: "desc" }, take: 10, select: { title: true } });
     claimed.push({
       jobId: candidate.id,
       label: `${formatIsoDate(now)} の業界ニュース収集`,
-      prompt: buildCollectionSearchPrompt(now),
+      prompt: buildCollectionSearchPrompt(now, { policy: policy.policy, instruction: policy.pendingInstruction, rejectedArticles: rejected.map((item) => item.title) }),
       outputSchema: buildCollectionSearchSchema(),
       leaseExpiresAt: leaseExpiresAt.toISOString(),
       timeoutSeconds: COLLECTION_SEARCH_TIMEOUT_SECONDS,
@@ -129,6 +132,8 @@ export async function reportCollectionSearchResult(input: ReportCollectionSearch
     await finishFailed(job.id, "FAILED", now, { failureKind: "INVALID_OUTPUT", failureMessage: truncateFailureMessage(`収集の結果を読み取れませんでした: ${parsed.error}`) }, { codexAuthMode: input.codexAuthMode, durationMs: input.durationMs });
     return { ok: true, status: "FAILED" };
   }
+
+  if (parsed.nextPolicy) await saveCollectionSearchPolicy(parsed.nextPolicy);
 
   let imported;
   try {

@@ -2,13 +2,17 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { APP_CHANGELOG } from "@/lib/changelog";
+import CollectionSearchSettings from "@/components/CollectionSearchSettings";
+import { getCollectionSearchPolicy } from "@/lib/collection-search-settings";
 
 export default async function SettingsPage() {
   const user = await getCurrentUser();
   if (user.status === "unavailable") return <section className="content"><div className="empty-state"><p>認証状態を確認できませんでした。しばらくしてから再読み込みしてください。</p></div></section>;
   if (user.status === "unauthenticated") redirect("/login");
+  const policy = await getCollectionSearchPolicy();
 
   return <section className="content"><Link className="breadcrumb" href="/dashboard">‹　業界ニュースへ戻る</Link><header className="page-header"><div><p className="eyebrow">SETTINGS</p><h1>設定</h1><p className="lead">アカウント情報の確認と、アプリの更新履歴をまとめて確認できます。</p></div></header>
+    <CollectionSearchSettings policy={policy.policy} updatedAt={policy.updatedAt.toISOString()} pendingInstruction={policy.pendingInstruction} />
     <div className="settings-card">
       <h2>アカウント</h2>
       <p className="desc">ログイン中のGoogleアカウント</p>

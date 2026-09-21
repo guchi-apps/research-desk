@@ -858,6 +858,13 @@ VPSのポーラー → claim（kind: "collection_search"）→ codex exec ＋ We
 付与）と、記事解析と共通の事業の観点（`DELIVERY_SCOPE`・`LOCKER_SCOPE`）から組んだもの。** ChatGPT側で
 実際に使っているプロンプトが手に入ったら`buildCollectionSearchPrompt()`を差し替える。
 
+### 検索・判定基準は不採用記事と利用者の指示から更新する
+
+`CollectionSearchPolicy`はAIが使う検索・採用／不採用の判定基準を1件だけ保持する。設定画面では基準と
+最終更新日時を表示し、利用者は不自然な検索結果を文章で指示する。次の収集ジョブは、その指示と人が不採用にした
+直近10件の記事題名をプロンプトへ渡し、Codexが返す`nextPolicy`を次回用に保存する。利用者が個別の除外語句を
+管理するのではなく、語句では表せない不採用の傾向もAIが基準へ整理する。
+
 ## 解析状況画面（`/dashboard/analysis`, #137）
 
 業界ニュース画面上部の「ChatGPT 解析」の帯（`AnalysisStatusStrip`）は、帯全体がこの画面への
