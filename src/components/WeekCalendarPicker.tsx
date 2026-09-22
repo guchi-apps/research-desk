@@ -94,9 +94,7 @@ export default function WeekCalendarPicker({ months, currentWeekOffset, currentL
   return (
     <div className="week-picker" ref={rootRef}>
       <button type="button" className={open ? "week-trigger open" : "week-trigger"} aria-expanded={open} onClick={() => setOpen((current) => !current)}>
-        <span className="cal-ico" aria-hidden>📅</span>
         {currentLabel}
-        <span className="caret">▾</span>
       </button>
       {open && (
         <div className="picker" role="dialog" aria-label="週を選ぶ">
