@@ -10,9 +10,9 @@ name: Daily Collection
 # develop→mainのリリースがデプロイされたときなので、それまでは401で失敗する。
 on:
   schedule:
-    # GitHub Actionsのcronは常にUTC。20:00 JST = 11:00 UTC。
+    # GitHub Actionsのcronは常にUTC。05:00 JST = 前日20:00 UTC。
     # 混雑する正時は遅延しやすく、数十分ずれることがある（日次なので許容する）。
-    - cron: "0 11 * * *"
+    - cron: "0 20 * * *"
   workflow_dispatch:
 
 concurrency:

@@ -31,7 +31,7 @@ function readAideBotConfig(): AideBotConfig | null {
 }
 
 /**
- * 収集対象週（`CollectionResult.targetFrom`＝JST月曜0時始まりのISO日時）をdedupeKeyにする。
+ * 収集対象週（`CollectionResult.targetFrom`＝JST日曜0時始まりのISO日時）をdedupeKeyにする。
  * runIdにすると同じ週の手動再実行のたびに別の吹き出しが積まれてしまうため、週単位で上書きさせる。
  */
 function weekDedupeKey(targetFrom: string): string {
@@ -39,15 +39,12 @@ function weekDedupeKey(targetFrom: string): string {
 }
 
 /**
- * 収集結果を通知する。`insertedCount`が1件以上のときだけ送る（重複・統合更新だけの回や、
- * フィード取得に失敗しただけの回では送らない）。
+ * 収集結果を通知する。0件でも完了を残し、同じ週の通知は上書きする。
  */
 export async function notifyNewCandidates(
-  result: Pick<CollectionResult, "insertedCount" | "targetFrom">,
+  result: Pick<CollectionResult, "insertedCount" | "mergedCount" | "targetFrom">,
   listUrl: string,
 ): Promise<void> {
-  if (result.insertedCount < 1) return;
-
   const config = readAideBotConfig();
   if (!config) return;
 
@@ -62,8 +59,8 @@ export async function notifyNewCandidates(
         source: "research-desk",
         kind: "weekly-collection",
         dedupeKey: weekDedupeKey(result.targetFrom),
-        title: "業界情報の新着候補",
-        body: `宅配・ロッカー業界の新着候補が${result.insertedCount}件届きました。`,
+        title: "業界情報の日次収集が完了",
+        body: `宅配・ロッカー業界の日次収集が完了しました。新規${result.insertedCount}件・更新${result.mergedCount}件です。`,
         url: listUrl,
         priority: "NORMAL",
         expiresAt: new Date(Date.now() + EXPIRES_AFTER_MS).toISOString(),

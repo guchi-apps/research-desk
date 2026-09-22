@@ -113,7 +113,7 @@ describe("sanitizeSubjectBody", () => {
 describe("defaultSubjectBody", () => {
   it("週ラベルと件数を含む", () => {
     const subject = defaultSubjectBody(LAST_WEEK, 5);
-    assert.match(subject, /2026年8月31日 — 9月6日/);
+    assert.match(subject, /2026年8月30日 — 9月5日/);
     assert.match(subject, /5件/);
   });
 });
@@ -129,7 +129,7 @@ describe("buildNewsMailHtml", () => {
 
   it("週ラベル・記事タイトル・元記事リンクを含む", () => {
     const html = buildNewsMailHtml(input);
-    assert.match(html, /2026年8月31日 — 9月6日/);
+    assert.match(html, /2026年8月30日 — 9月5日/);
     assert.match(html, /後付けの通知ユニット/);
     assert.match(html, /href="https:\/\/example\.com\/news\/1"/);
   });
