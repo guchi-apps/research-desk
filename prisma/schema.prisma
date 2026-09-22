@@ -38,6 +38,9 @@ enum IndustryInformationType {
   CONSTRUCTION
   QUALITY_SAFETY
   PATENT
+  ACADEMIC_RESEARCH
+  VIDEO
+  SOCIAL_TREND
   OVERSEAS_CASE
   OTHER
 }
@@ -105,6 +108,7 @@ model IndustryInformation {
   importance       IndustryImportance      @default(REFERENCE)
   targetCompany    String?
   targetProduct    String?
+  region           String?
   keywords         Json?
   tags             Json?
   periodScope      IndustryPeriodScope     @default(IN_SCOPE)
@@ -322,6 +326,7 @@ model CollectionSearchJob {
   model           String?
   codexAuthMode   String?
   durationMs      Int?
+  searchReport    Json?
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
 

@@ -35,6 +35,9 @@ export const COLLECTED_INFORMATION_TYPES = [
   "CONSTRUCTION",
   "QUALITY_SAFETY",
   "PATENT",
+  "ACADEMIC_RESEARCH",
+  "VIDEO",
+  "SOCIAL_TREND",
   "OVERSEAS_CASE",
   "OTHER",
 ] as const;
@@ -48,9 +51,8 @@ export type CollectedInformationType = (typeof COLLECTED_INFORMATION_TYPES)[numb
 export const COLLECTION_SEARCH_ARTICLE_LIMIT = 10;
 export const COLLECTION_SEARCH_ARTICLE_LIMIT_PER_BUSINESS = 5;
 
-/** 検索の対象期間（日）。7日で足りなければ30日まで広げ、その記事は`PAST_30_DAYS_SUPPLEMENT`にする。 */
+/** 検索の対象期間（日）。古い記事で件数を埋めないため補充期間は設けない。 */
 export const COLLECTION_SEARCH_WINDOW_DAYS = 7;
-export const COLLECTION_SEARCH_SUPPLEMENT_DAYS = 30;
 
 /**
  * ポーラーがこのジョブに使う実行上限（秒）。Web検索をしながら選定・要約まで行うため、記事1件の
@@ -78,7 +80,7 @@ const METRICS_MAX_JSON_LENGTH = 2000;
  * 品質を見比べる間は、両者が独立に選んだ結果を比べたい（渡すと重なりが見えなくなる）。
  * 重複はURL一致と同一イベントの統合（#43）が取り込み側で処理する。
  */
-export type CollectionSearchBusinessContext = { policy: string; instruction: string | null; rejectedArticles: string[] };
+export type CollectionSearchBusinessContext = { policy: string; instruction: string | null; rejectedArticles: string[]; existingArticles: { title: string; summary: string | null; url: string }[] };
 export type CollectionSearchPolicyContext = { delivery: CollectionSearchBusinessContext; locker: CollectionSearchBusinessContext };
 
 function businessPolicySection(label: string, business: CollectionSearchBusinessContext): string[] {
@@ -88,13 +90,13 @@ function businessPolicySection(label: string, business: CollectionSearchBusiness
     business.policy,
     ...(business.rejectedArticles.length ? ["", "利用者が不採用にした記事（同じ傾向を避ける参考）:", ...business.rejectedArticles.map((title) => `- ${title}`)] : []),
     ...(business.instruction ? ["", "利用者からの調整指示:", business.instruction] : []),
+    ...(business.existingArticles.length ? ["", "同じ週に掲載済みの記事（新規・更新差分の確認に使う）:", ...business.existingArticles.map((article) => `- ${article.title}: ${article.summary ?? "要約なし"} (${article.url})`)] : []),
     "",
   ];
 }
 
 export function buildCollectionSearchPrompt(now: Date, context?: CollectionSearchPolicyContext): string {
   const windowStart = new Date(now.getTime() - COLLECTION_SEARCH_WINDOW_DAYS * DAY_MS);
-  const supplementStart = new Date(now.getTime() - COLLECTION_SEARCH_SUPPLEMENT_DAYS * DAY_MS);
   return [
     "あなたは戸建て・集合住宅向けの宅配ボックス／機能門柱と、マルチロッカー事業を手がけるメーカーの商品企画担当を支援するリサーチャーです。",
     "Web検索を使って、下記の2事業に関する業界ニュースを集め、選び、要約してください。指定されたJSON Schemaに合うJSONだけを最終応答として返し、説明文・前置き・コードフェンスは付けないでください。",
@@ -116,12 +118,15 @@ export function buildCollectionSearchPrompt(now: Date, context?: CollectionSearc
       : []),
     "## 対象期間",
     "",
-    `- 今日は${formatIsoDate(now)}（JST）です。まず直近${COLLECTION_SEARCH_WINDOW_DAYS}日（${formatIsoDate(windowStart)}以降）に公開・発表された記事から選び、periodScope は IN_SCOPE にします。`,
-    `- ${COLLECTION_SEARCH_WINDOW_DAYS}日だけでは事業ごとの件数に足りないときに限り、${COLLECTION_SEARCH_SUPPLEMENT_DAYS}日前（${formatIsoDate(supplementStart)}）まで広げてかまいません。その記事の periodScope は PAST_30_DAYS_SUPPLEMENT にします。それより古い記事は選ばないでください。`,
+    `- 今日は${formatIsoDate(now)}（JST）です。実行時点から直近${COLLECTION_SEARCH_WINDOW_DAYS}日（${formatIsoDate(windowStart)}以降）に公開・発表された記事だけを選び、periodScope は IN_SCOPE にします。古い記事で件数を埋めないでください。`,
     "",
     "## 選び方",
     "",
-    `- 事業ごとに${COLLECTION_SEARCH_ARTICLE_LIMIT_PER_BUSINESS}件まで、合計${COLLECTION_SEARCH_ARTICLE_LIMIT}件までです。該当する記事が少ない事業は、無理に埋めず少ない件数のままにしてください。`,
+    `- 事業ごとに${COLLECTION_SEARCH_ARTICLE_LIMIT_PER_BUSINESS}件まで、合計${COLLECTION_SEARCH_ARTICLE_LIMIT}件までを目安にします。該当する記事が少ない事業は、無理に埋めず少ない件数のままにしてください。`,
+    "- 宅配とロッカーを別々に検索・選定します。宅配はポスト、宅配ボックス、機能門柱、置き配、防犯、施工、配送員・利用者課題、配送ロボット・ドローン・自動運転配送、スマートロック、受渡し連携を確認します。ロッカーはマルチロッカー、セルフ発送機、PUDO、SMARI、Amazon Hub、マルチエキューブ、SPACER、発送・返品・返却・受取、満杯・空占有・滞留・誤投函・保守・設置・事業性を確認します。",
+    "- 各事業で国内検索と英語による海外検索を必ず行い、米国・欧州・アジア／オセアニアの一次情報を確認します。通常ニュースに加え、査読論文・行政調査、特許公報、企業公式・放送局の動画、ログイン不要の公開SNSを毎回確認します。",
+    "- 学術は公開日・査読状況・研究地域・主要条件／数値・DOI等の原典を確認します。特許は番号・権利者・優先日・法的状態・示唆を確認し、同じ特許ファミリーは1件へ統合します。FTO・侵害等の法的判断はしません。動画は放送予定と放送後の新情報を統合します。SNSは個人情報・晒し・噂・生成AI捏造を除外し、反応数／複数投稿傾向／現場性／具体的な仕様・運用課題がある公開情報だけを扱います。",
+    "- 同じ週の既存記事と比べ、同一発表・導入・実証・制度変更・数値発表・特許ファミリーは増やさず、数値・地域・仕様・利用者反応の差分があれば既存記事の更新として扱います。一次情報を主リンクにし、補足記事とSNS反応は同じ記事に集約します。商品企画・全体設計への示唆を説明できない情報は採用しません。",
     "- 商品企画・全体設計の判断に効くものを優先します。新商品・競合の動き・導入事例・制度や補助金・市場統計・ユーザーの課題・品質や安全・海外事例などです。",
     "- 公式発表・行政・企業のニュースリリースなど一次情報を優先し、その記事の isPrimarySource を true にします。転載・解説記事しか見つからないときは false にし、可能なら元の発表元を publisher・targetCompany に入れてください。",
     "- 同じ発表を報じた複数の記事は1件にまとめ、最も原典に近いものを選びます。",
@@ -131,11 +136,12 @@ export function buildCollectionSearchPrompt(now: Date, context?: CollectionSearc
     "",
     "- title・url・sourceName（媒体名）: 検索で実際に開いて確認できた記事のものだけを書きます。**URLを推測で作らない。** 検索サービスのリダイレクトURLではなく、記事そのもののURLを書いてください。",
     "- publisher（発表元）・targetCompany・targetProduct: 分かる範囲で入れます。targetProduct は同一イベントの判定に使うので、製品・サービス名が分かるときは必ず入れてください。",
-    "- publishedAt（公開日時）・occurredAt（事象の発生日時）: ISO 8601。分からなければ null にします。",
+    "- publishedAt（公開日時）・occurredAt（事象の発生日時）: ISO 8601。region（国・地域）: 分かる範囲で入れます。分からなければ null にします。",
     "- informationType: 情報の種別。importance: HIGH（高）／MEDIUM（中）／REFERENCE（参考）。",
     "- summary: 記事の要約（200字程度）。implications: 商品企画・全体設計への示唆。当社が何を検討すべきかという形で書きます。",
     "- extractedMetrics: 設置台数・金額・発売時期などの数字が記事に出ているときだけ、1件ずつ name（項目名）と value（単位つきの文字列）に分けた配列にします。無ければ空の配列にします。",
     "- keywords・tags: 検索や分類に使う語。",
+    "- searchReport: 実際に確認した地域・情報源・検索テーマを列挙します。0件でも必ず返します。",
     "",
     "事実に無いことを足さないでください。記事に書かれていないことは書かず、断定できないものは「〜とみられる」と書きます。",
   ].join("\n");
@@ -153,7 +159,7 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["articles", "nextPolicyDelivery", "nextPolicyLocker"],
+    required: ["articles", "nextPolicyDelivery", "nextPolicyLocker", "searchReport"],
     properties: {
       articles: {
         type: "array",
@@ -176,6 +182,7 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
             "importance",
             "targetCompany",
             "targetProduct",
+            "region",
             "keywords",
             "tags",
             "periodScope",
@@ -196,6 +203,7 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
             importance: { type: "string", enum: ["HIGH", "MEDIUM", "REFERENCE"] },
             targetCompany: nullableString,
             targetProduct: nullableString,
+            region: nullableString,
             keywords: { type: "array", items: { type: "string" } },
             tags: { type: "array", items: { type: "string" } },
             periodScope: { type: "string", enum: ["IN_SCOPE", "PAST_30_DAYS_SUPPLEMENT"] },
@@ -208,6 +216,15 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
       },
       nextPolicyDelivery: { type: "string" },
       nextPolicyLocker: { type: "string" },
+      searchReport: {
+        type: "object", additionalProperties: false,
+        required: ["checkedRegions", "checkedSources", "checkedThemes"],
+        properties: {
+          checkedRegions: { type: "array", items: { type: "string" } },
+          checkedSources: { type: "array", items: { type: "string" } },
+          checkedThemes: { type: "array", items: { type: "string" } },
+        },
+      },
     },
   };
 }
@@ -230,14 +247,16 @@ export type CollectedArticle = {
   importance: CollectedImportance;
   targetCompany: string | null;
   targetProduct: string | null;
+  region: string | null;
   keywords: string[];
   tags: string[];
   periodScope: CollectedPeriodScope;
   extractedMetrics: Record<string, string> | null;
 };
 
+export type CollectionSearchReport = { checkedRegions: string[]; checkedSources: string[]; checkedThemes: string[] };
 export type CollectionSearchParseResult =
-  | { ok: true; articles: CollectedArticle[]; found: number; dropped: number; nextPolicyDelivery: string | null; nextPolicyLocker: string | null }
+  | { ok: true; articles: CollectedArticle[]; found: number; dropped: number; nextPolicyDelivery: string | null; nextPolicyLocker: string | null; searchReport: CollectionSearchReport }
   | { ok: false; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -322,6 +341,7 @@ function toArticle(raw: unknown): CollectedArticle | null {
     importance: oneOf(raw.importance, ["HIGH", "MEDIUM", "REFERENCE"] as const) ?? "REFERENCE",
     targetCompany: optionalString(raw.targetCompany, SOURCE_NAME_LIMIT),
     targetProduct: optionalString(raw.targetProduct, SOURCE_NAME_LIMIT),
+    region: optionalString(raw.region, 200),
     keywords: stringList(raw.keywords),
     tags: stringList(raw.tags),
     periodScope: oneOf(raw.periodScope, ["IN_SCOPE", "PAST_30_DAYS_SUPPLEMENT"] as const) ?? "IN_SCOPE",
@@ -361,5 +381,6 @@ export function parseCollectionSearchPayload(raw: unknown): CollectionSearchPars
     dropped: found - articles.length,
     nextPolicyDelivery: optionalString(raw.nextPolicyDelivery, 4000),
     nextPolicyLocker: optionalString(raw.nextPolicyLocker, 4000),
+    searchReport: isRecord(raw.searchReport) ? { checkedRegions: stringList(raw.searchReport.checkedRegions), checkedSources: stringList(raw.searchReport.checkedSources), checkedThemes: stringList(raw.searchReport.checkedThemes) } : { checkedRegions: [], checkedSources: [], checkedThemes: [] },
   };
 }

@@ -144,9 +144,15 @@ export default async function AnalysisStatusPage() {
               {job.durationMs !== null && <span>所要 {formatDuration(job.durationMs)}</span>}
             </div>
             {job.counts && <p className="q-hint">Codexが返した{job.counts.found}件 → 新規 {job.counts.inserted}・統合更新 {job.counts.merged}・既存と重複 {job.counts.duplicate}・上限で除外 {job.counts.excluded}{job.counts.dropped > 0 && `・読めず除外 ${job.counts.dropped}`}</p>}
+            {job.searchReport && <div className="q-hint">
+              <p>確認地域: {job.searchReport.checkedRegions.join("・") || "記録なし"} ／ 情報源: {job.searchReport.checkedSources.join("・") || "記録なし"}</p>
+              <p>検索テーマ: {job.searchReport.checkedThemes.join("・") || "記録なし"}</p>
+              <p>宅配 {job.searchReport.businessCounts.find((item) => item.business === "DELIVERY")?.count ?? 0}件・ロッカー {job.searchReport.businessCounts.find((item) => item.business === "LOCKER")?.count ?? 0}件・海外 {job.searchReport.overseasCount}件・SNS {job.searchReport.snsCount}件</p>
+              <p>種別: {job.searchReport.informationTypeCounts.map((item) => `${item.informationType} ${item.count}件`).join("・") || "なし"}</p>
+            </div>}
             {(job.status === "FAILED" || job.status === "AUTH_REQUIRED") && <p className="q-fail">{job.failureKind ? FAILURE_KIND_LABELS[job.failureKind] : (job.failureMessage ?? "理由は記録されていません")}{job.status === "AUTH_REQUIRED" && " — VPSでChatGPTに再ログインしてください"}</p>}
           </div>)}
-          <p className="q-hint">ChatGPT定期タスクと併用している間は、「既存と重複」が多いほど両者が選んだ記事が重なっています。</p>
+          <p className="q-hint">0件でも完了記録を残します。収集件数は採用・不採用を判断するための目安で、関連性の低い情報で埋めません。</p>
         </section>
       </aside>
     </div>
