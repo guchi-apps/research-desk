@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 128" role="img" aria-label="ワークリレー（work·relay）">
+  <title>ワークリレー（work·relay）濃色背景用</title>
+  <g transform="translate(4 4) scale(.234375)">
+  <rect width="512" height="512" rx="112" fill="#F7FAF8"/>
+  <rect x="82" y="105" width="210" height="270" rx="34" fill="#1D3440"/>
+  <circle cx="126" cy="153" r="15" fill="#D97735"/>
+  <rect x="220" y="137" width="210" height="270" rx="34" fill="#1D3440" stroke="#F7FAF8" stroke-width="12" paint-order="stroke"/>
+  <path d="M150 321 C198 321 212 291 241 273 C271 254 304 252 345 252" fill="none" stroke="#70D6BF" stroke-width="34" stroke-linecap="round"/>
+  <path d="M336 220 L386 252 L336 284 Z" fill="#70D6BF"/>
+  <circle cx="150" cy="321" r="13" fill="#D97735"/>
+  </g>
+  <text x="150" y="80" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="58" font-weight="800" letter-spacing="-2">
+    <tspan fill="#F7FAF8">work</tspan><tspan fill="#D97735">·</tspan><tspan fill="#70D6BF">relay</tspan>
+  </text>
+  <text x="154" y="106" font-family="Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="12" font-weight="700" letter-spacing="3.5" fill="#B7CFCD">FROM SIGNAL TO WORK</text>
+</svg>

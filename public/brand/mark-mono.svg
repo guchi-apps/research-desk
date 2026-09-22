@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ワークリレー">
+  <title>ワークリレー（モノクロ）</title>
+  <!-- 1色（currentColor）版。背景を持たないため、奥のカードの輪郭は手前のカードと重なる部分をmaskで切る -->
+  <defs>
+    <mask id="behind-front">
+      <rect width="512" height="512" fill="#fff"/>
+      <rect x="208" y="125" width="234" height="294" rx="40" fill="#000"/>
+    </mask>
+  </defs>
+  <g fill="none" stroke="currentColor" stroke-width="24">
+    <rect x="94" y="117" width="186" height="246" rx="28" mask="url(#behind-front)"/>
+    <rect x="232" y="149" width="186" height="246" rx="28"/>
+  </g>
+  <path d="M150 321 C198 321 212 291 241 273 C271 254 304 252 345 252" fill="none" stroke="currentColor" stroke-width="34" stroke-linecap="round"/>
+  <path d="M336 220 L386 252 L336 284 Z" fill="currentColor"/>
+  <circle cx="150" cy="321" r="22" fill="currentColor"/>
+</svg>
