@@ -392,10 +392,8 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
   `pnpm-workspace.yaml`の`allowBuilds`に`sharp`が載っているが、これはNext.jsが画像最適化で
   使う任意の依存で`package.json`には現れず、アイコン生成用に新規導入したものではない。
   新規npm依存を増やさずに済むため、SVG→PNGの変換はNext.jsのビルド作業に含めず、リポジトリには
-  生成済みのPNG（`public/icon-192.png`・`public/icon-512.png`・`public/apple-icon.png`）だけを
-  コミットしている。デザインを変える場合は`public/icon.svg`を編集し、同じ`rsvg-convert`コマンドで
-  再生成する（Apple Touch Iconだけは、iOS側が自前でマスクをかけるため角丸を付けない別ソースから
-  生成している）
+  生成済みのPNGもコミットしている。**#225でブランドを刷新し、原本とPNGは`public/brand/`へ移した**
+  （下の「ブランドロゴ・PWAアイコンの刷新（#225）」を参照）
 - **起動画面（スプラッシュ）は`src/app/loading.tsx`（App Routerのファイル規約）で実装した。**
   当初はルート直下のこの1枚だけが唯一の`loading.tsx`で、遷移のたびにサイドバーごと全画面が
   これに置き換わっていたが、#73でルートグループ（`(app)`）ごとの`loading.tsx`へ役割を分けた。
@@ -407,6 +405,28 @@ AIDE経由の週報登録（`importWeeklyReport()`）と自動収集（`runDaily
   `body{background:#eef4f1}`（クラスセレクタがタグセレクタより詳細度で勝つ）が上書きされ、
   ブランドの配色ではなく暗い既定色が効いていた。`body`からTailwindの色クラスを外し、
   `globals.css`側の基本配色に一本化した
+
+## ブランドロゴ・PWAアイコンの刷新（#225）
+
+「情報を、仕事へつなぐ。」を表すマーク（記事・写真・メモを表す2枚のカードを、ティールのリレーラインで
+つなぐ。オレンジの点は拾い上げた重要情報）へ差し替えた。ブランドカラーはNavy `#1D3440`・
+Teal `#087F78`・Orange `#D97735`・Paper `#F7FAF8`・濃色背景用Mint `#70D6BF`。
+
+- **原本は`public/brand/*.svg`、PNGは`scripts/generate-brand-icons.sh`（`rsvg-convert`）で作って
+  コミットする。** ビルドやCIでは生成しない。原本は用途ごとに分かれている
+  - `icon.svg` … 通常版（角丸つき・角は透明）。`icon-192.png`・`icon-512.png`の元
+  - `icon-maskable.svg` … マスク対応版。図形を80%に縮め、円形・角丸クロップの安全域（中心から半径40%）に収める
+  - `apple-icon.svg` … iOSホーム画面用。角丸はiOSが掛けるため付けない（二重角丸を避ける）
+  - `favicon.svg` … 32px以下向けの簡略版。カード内の本文の線を省き、2枚のカード・流線・起点だけにする
+  - `logo-horizontal-light.svg`・`logo-horizontal-dark.svg`・`mark-mono.svg` … 配布用（アプリからは参照しない）
+- **原本との差は1点。** Issue添付の原本では2枚のカードが同じ色で接していて、小さいサイズでは1枚の
+  塊に見える。手前のカードに背景色のフチ（512座標で12px）を足して重なりを読ませている
+- **PNGを旧アイコン（`public/icon-*.png`）と別のURLにした。** インストール済みPWAはmanifestの
+  アイコンURLが変わったときに差し替えを検知するため、同じURLのまま中身だけ替えると古いアイコンが
+  残りやすい。iOSのホーム画面アイコンは追加時に保存されるため、再追加しないと変わらない
+- **アプリ内のマークは`src/components/BrandMark.tsx`がインラインSVGで描く。** 背景の明暗で配色を
+  切り替える（サイドバーは濃色用、スマホ上部バー・ログインは明色用、スプラッシュはタイル無し）ため、
+  `<img>`では置かない。横長ロゴもSVG内の`<text>`ではなくHTMLの文字で組み、ページと同じフォントにする
 
 ## CI撮影の認証バイパス
 

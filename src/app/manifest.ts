@@ -9,6 +9,8 @@ import type { MetadataRoute } from "next";
  * 受け口は`src/app/api/share/inbox/route.ts`で、Service Workerは使わない（#68）。
  *
  * アイコン・配色は`src/app/globals.css`の`--navy`/`--teal`/`--paper`と揃えている（#46）。
+ * アイコンの原本は`public/brand/*.svg`で、PNGは`scripts/generate-brand-icons.sh`で作る（#225）。
+ * 旧アイコンと別のURLにしてあるのは、インストール済みPWAに差し替えを検知させるため。
  */
 export default function manifest(): MetadataRoute.Manifest {
   return {
@@ -32,9 +34,11 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     },
     icons: [
-      { src: "/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
-      { src: "/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
-      { src: "/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/brand/icon.svg", sizes: "any", type: "image/svg+xml", purpose: "any" },
+      { src: "/brand/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: "/brand/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: "/brand/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+      { src: "/brand/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
   };
 }

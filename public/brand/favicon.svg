@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ワークリレー">
+  <title>ワークリレー</title>
+  <!-- 32px以下向けの簡略版。カード内の本文の線を省き、2枚のカード・流線・起点だけにする -->
+  <rect width="64" height="64" rx="14" fill="#1D3440"/>
+  <rect x="8" y="13" width="28" height="33" rx="5" fill="#F7FAF8"/>
+  <rect x="26" y="19" width="30" height="33" rx="5" fill="#F7FAF8" stroke="#1D3440" stroke-width="3" paint-order="stroke"/>
+  <path d="M15 39 C22 39 24 33 30 31 C34 30 38 30 42 30" fill="none" stroke="#087F78" stroke-width="5.5" stroke-linecap="round"/>
+  <path d="M41 23.5 L51 30 L41 36.5 Z" fill="#087F78"/>
+  <circle cx="15" cy="39" r="4" fill="#D97735"/>
+</svg>
