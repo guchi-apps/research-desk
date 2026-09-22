@@ -25,7 +25,8 @@
 
 **画面に出る名前は「ワークリレー（work·relay）」**（#139）。URL・リポジトリ名・DB名・PM2のプロセス名・
 AIDE連携の識別子（`source: "research-desk"`等）は`research-desk`のまま。表示名は`src/app/layout.tsx`・
-`src/app/manifest.ts`・ロゴ文字（`AppShell`・`SplashScreen`・`login/page.tsx`）・`public/icon.svg`にある。
+`src/app/manifest.ts`・ロゴ（`src/components/BrandMark.tsx`を`AppShell`・`SplashScreen`・`login/page.tsx`が使う）・
+アイコン原本`public/brand/*.svg`にある（#225）。
 
 技術構成・認証フロー・DBスキーマの現状は [docs/architecture.md](docs/architecture.md) を参照。
 

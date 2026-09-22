@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { BrandLogo } from "@/components/BrandMark";
 import SidebarNav from "@/components/SidebarNav";
 import { DIRECTION_LOCK_PX, EDGE_ZONE_PX, SWIPE_DIRECTION_RATIO, SWIPE_MIN_DISTANCE_PX, WIDE_EDGE_ZONE_PX } from "@/lib/nav-swipe";
 
@@ -132,13 +133,14 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         <button type="button" className="menu-btn" aria-expanded={open} aria-label={open ? "メニューを閉じる" : "メニューを開く"} onClick={() => setOpen((current) => !current)}>
           {open ? "✕" : "☰"}
         </button>
+        <BrandLogo tone="light" className="mobile-brand" />
         <span className="mobile-bar-spacer" />
         {pathname !== IMAGE_MAIL_PATH && <Link className="icon-btn" href={IMAGE_MAIL_PATH} aria-label="画像を社用メールに送る" onClick={() => setOpen(false)}>📷</Link>}
         {pathname !== SETTINGS_PATH && <Link className="icon-btn" href={SETTINGS_PATH} aria-label="設定" onClick={() => setOpen(false)}>⚙</Link>}
       </div>
       <aside className="sidebar" onClick={closeIfLinkClicked}>
         <div className="brand">
-          work<span>·</span>relay
+          <BrandLogo tone="dark" />
         </div>
         <SidebarNav />
       </aside>

@@ -1,17 +1,12 @@
+import { BrandMark, Wordmark } from "@/components/BrandMark";
+
 export default function LoginPage() {
   return (
     <main className="login-shell">
       <div className="login-card">
-        <svg className="login-mark" width="56" height="56" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
-          <rect width="512" height="512" rx="112" fill="#1d3440" />
-          <rect x="140" y="96" width="232" height="312" rx="28" fill="#f7faf8" />
-          <rect x="176" y="148" width="160" height="30" rx="8" fill="#087f78" />
-          <rect x="176" y="202" width="160" height="14" rx="7" fill="#cfe0dd" />
-          <rect x="176" y="230" width="108" height="14" rx="7" fill="#cfe0dd" />
-          <circle cx="380" cy="380" r="56" fill="#087f78" stroke="#1d3440" strokeWidth="14" />
-        </svg>
+        <BrandMark variant="light" size={64} className="login-mark" />
         <p className="login-word">
-          work<span>·</span>relay
+          <Wordmark tone="light" />
         </p>
         <p className="login-lead">
           私用スマホで集めた業界ニュースや撮った写真を、社用PC・社用メールへ届ける個人用ツールです。

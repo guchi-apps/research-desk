@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ワークリレー">
+  <title>ワークリレー</title>
+  <rect width="512" height="512" rx="112" fill="#1D3440"/>
+  <rect x="82" y="105" width="210" height="270" rx="34" fill="#F7FAF8"/>
+  <circle cx="126" cy="153" r="15" fill="#D97735"/>
+  <rect x="153" y="141" width="91" height="24" rx="12" fill="#CFE0DD"/>
+  <rect x="116" y="205" width="128" height="18" rx="9" fill="#9DC9C2"/>
+  <rect x="116" y="240" width="94" height="18" rx="9" fill="#CFE0DD"/>
+  <rect x="220" y="137" width="210" height="270" rx="34" fill="#F7FAF8" stroke="#1D3440" stroke-width="12" paint-order="stroke"/>
+  <rect x="258" y="184" width="128" height="28" rx="14" fill="#087F78"/>
+  <rect x="258" y="239" width="128" height="18" rx="9" fill="#9DC9C2"/>
+  <rect x="258" y="274" width="94" height="18" rx="9" fill="#CFE0DD"/>
+  <path d="M150 321 C198 321 212 291 241 273 C271 254 304 252 345 252" fill="none" stroke="#087F78" stroke-width="34" stroke-linecap="round"/>
+  <path d="M336 220 L386 252 L336 284 Z" fill="#087F78"/>
+  <circle cx="150" cy="321" r="13" fill="#D97735"/>
+</svg>
