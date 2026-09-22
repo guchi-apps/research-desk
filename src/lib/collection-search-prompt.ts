@@ -78,7 +78,19 @@ const METRICS_MAX_JSON_LENGTH = 2000;
  * 品質を見比べる間は、両者が独立に選んだ結果を比べたい（渡すと重なりが見えなくなる）。
  * 重複はURL一致と同一イベントの統合（#43）が取り込み側で処理する。
  */
-export type CollectionSearchPolicyContext = { policy: string; instruction: string | null; rejectedArticles: string[] };
+export type CollectionSearchBusinessContext = { policy: string; instruction: string | null; rejectedArticles: string[] };
+export type CollectionSearchPolicyContext = { delivery: CollectionSearchBusinessContext; locker: CollectionSearchBusinessContext };
+
+function businessPolicySection(label: string, business: CollectionSearchBusinessContext): string[] {
+  return [
+    `### ${label}`,
+    "",
+    business.policy,
+    ...(business.rejectedArticles.length ? ["", "利用者が不採用にした記事（同じ傾向を避ける参考）:", ...business.rejectedArticles.map((title) => `- ${title}`)] : []),
+    ...(business.instruction ? ["", "利用者からの調整指示:", business.instruction] : []),
+    "",
+  ];
+}
 
 export function buildCollectionSearchPrompt(now: Date, context?: CollectionSearchPolicyContext): string {
   const windowStart = new Date(now.getTime() - COLLECTION_SEARCH_WINDOW_DAYS * DAY_MS);
@@ -92,7 +104,16 @@ export function buildCollectionSearchPrompt(now: Date, context?: CollectionSearc
     `- 宅配事業（DELIVERY）: ${DELIVERY_SCOPE}`,
     `- ロッカー事業（LOCKER）: ${LOCKER_SCOPE}`,
     "",
-    ...(context ? ["## 現在の検索・判定基準", "", context.policy, ...(context.rejectedArticles.length ? ["", "利用者が不採用にした記事（同じ傾向を避ける参考）:", ...context.rejectedArticles.map((title) => `- ${title}`)] : []), ...(context.instruction ? ["", "利用者からの調整指示:", context.instruction] : []), "", "この基準と不採用記事を踏まえて記事を選んでください。収集後は nextPolicy に、次回以降に使う改善済みの検索・判定基準を簡潔に書いてください。"] : []),
+    ...(context
+      ? [
+          "## 現在の検索・判定基準（事業ごと）",
+          "",
+          ...businessPolicySection("宅配事業（DELIVERY）", context.delivery),
+          ...businessPolicySection("ロッカー事業（LOCKER）", context.locker),
+          "この基準と不採用記事を踏まえて記事を選んでください。収集後は nextPolicyDelivery・nextPolicyLocker に、それぞれの事業で次回以降に使う改善済みの検索・判定基準を簡潔に書いてください。",
+          "",
+        ]
+      : []),
     "## 対象期間",
     "",
     `- 今日は${formatIsoDate(now)}（JST）です。まず直近${COLLECTION_SEARCH_WINDOW_DAYS}日（${formatIsoDate(windowStart)}以降）に公開・発表された記事から選び、periodScope は IN_SCOPE にします。`,
@@ -132,7 +153,7 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
   return {
     type: "object",
     additionalProperties: false,
-    required: ["articles", "nextPolicy"],
+    required: ["articles", "nextPolicyDelivery", "nextPolicyLocker"],
     properties: {
       articles: {
         type: "array",
@@ -185,7 +206,8 @@ export function buildCollectionSearchSchema(): Record<string, unknown> {
           },
         },
       },
-      nextPolicy: { type: "string" },
+      nextPolicyDelivery: { type: "string" },
+      nextPolicyLocker: { type: "string" },
     },
   };
 }
@@ -215,7 +237,7 @@ export type CollectedArticle = {
 };
 
 export type CollectionSearchParseResult =
-  | { ok: true; articles: CollectedArticle[]; found: number; dropped: number; nextPolicy: string | null }
+  | { ok: true; articles: CollectedArticle[]; found: number; dropped: number; nextPolicyDelivery: string | null; nextPolicyLocker: string | null }
   | { ok: false; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -332,5 +354,12 @@ export function parseCollectionSearchPayload(raw: unknown): CollectionSearchPars
     articles.push(article);
   }
   if (found > 0 && articles.length === 0) return { ok: false, error: "返ってきた記事がどれも読み取れませんでした" };
-  return { ok: true, articles, found, dropped: found - articles.length, nextPolicy: optionalString(raw.nextPolicy, 4000) };
+  return {
+    ok: true,
+    articles,
+    found,
+    dropped: found - articles.length,
+    nextPolicyDelivery: optionalString(raw.nextPolicyDelivery, 4000),
+    nextPolicyLocker: optionalString(raw.nextPolicyLocker, 4000),
+  };
 }

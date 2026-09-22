@@ -21,11 +21,17 @@ type InformationTypeValue = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" |
 
 export type CollectionResult = { runId: string; status: "SUCCEEDED" | "PARTIAL" | "FAILED"; targetFrom: string; targetTo: string; supplementalFrom: string; fetchedCount: number; selectedCount: number; insertedCount: number; duplicateCount: number; mergedCount: number; excludedCount: number; failedCount: number; errors: string[] };
 
-const FEEDS = [
-  { business: "DELIVERY" as const, name: "宅配・住宅設備の公開情報", url: "https://news.google.com/rss/search?q=" + encodeURIComponent("(宅配ボックス OR ポスト OR 機能門柱 OR 置き配) (新商品 OR 発表 OR 導入 OR 補助金)") + "&hl=ja&gl=JP&ceid=JP:ja" },
-  { business: "LOCKER" as const, name: "ロッカー・発送サービスの公開情報", url: "https://news.google.com/rss/search?q=" + encodeURIComponent("(PUDO OR SMARI OR Amazon Hub OR マルチエキューブ OR SPACER OR セルフ発送) (導入 OR 発表 OR 物流 OR 返品)") + "&hl=ja&gl=JP&ceid=JP:ja" },
-  { business: "LOCKER" as const, name: "海外ロッカー事例", url: "https://news.google.com/rss/search?q=" + encodeURIComponent("(parcel locker OR locker drop-off OR self-service shipping kiosk)") + "&hl=en&gl=US&ceid=US:en" },
-];
+function googleNewsRssUrl(query: string, lang: "ja" | "en"): string {
+  const region = lang === "ja" ? "hl=ja&gl=JP&ceid=JP:ja" : "hl=en&gl=US&ceid=US:en";
+  return `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&${region}`;
+}
+
+// RSS収集で使う検索クエリ（ハードコード、設定画面からは変更不可）。テーマごとのキーワード表示（#211）にも使う。
+export const FEEDS = [
+  { business: "DELIVERY" as const, name: "宅配・住宅設備の公開情報", query: "(宅配ボックス OR ポスト OR 機能門柱 OR 置き配) (新商品 OR 発表 OR 導入 OR 補助金)", lang: "ja" as const },
+  { business: "LOCKER" as const, name: "ロッカー・発送サービスの公開情報", query: "(PUDO OR SMARI OR Amazon Hub OR マルチエキューブ OR SPACER OR セルフ発送) (導入 OR 発表 OR 物流 OR 返品)", lang: "ja" as const },
+  { business: "LOCKER" as const, name: "海外ロッカー事例", query: "(parcel locker OR locker drop-off OR self-service shipping kiosk)", lang: "en" as const },
+].map((feed) => ({ ...feed, url: googleNewsRssUrl(feed.query, feed.lang) }));
 
 function field(item: string, name: string): string | null {
   const match = item.match(new RegExp(`<${name}(?:\\s[^>]*)?>([\\s\\S]*?)</${name}>`, "i"));
