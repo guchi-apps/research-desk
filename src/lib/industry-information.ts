@@ -57,13 +57,13 @@ export function parseWeekBasis(value: string | string[] | undefined): WeekBasisP
 // 週に出るのが利用者の期待と一致するため、`periodScope`による分岐はやめた。
 function runOrCollectedCondition(range: WeekRange): Prisma.IndustryInformationWhereInput[] {
   return [
-    // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の月曜0時ちょうどでも翌週には出さない）。
+    // 期間の重なりで判定する。終端は排他（`targetTo`が翌週の日曜0時ちょうどでも翌週には出さない）。
     { collectionRun: { targetFrom: { lt: range.end }, targetTo: { gt: range.start } } },
     { collectionRunId: null, collectedAt: { gte: range.start, lt: range.end } },
   ];
 }
 
-/** 指定した週（JST月曜0時〜翌週月曜0時）に属するかどうかの絞り込み条件。`src/lib/collection.ts`の
+/** 指定した週（JST日曜0時〜翌週日曜0時）に属するかどうかの絞り込み条件。`src/lib/collection.ts`の
  * イベント統合・週あたり上限判定も、表示と同じ週の切り方に揃えるためこれを再利用する。
  *
  * `src/lib/collection.ts`側のイベント統合判定（`findEventMatch()`・`referenceDate`）は、これとは

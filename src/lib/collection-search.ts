@@ -1,9 +1,12 @@
 import { prisma } from "@/lib/db";
 import { canAcceptReport, classifyFailure, isDuplicateJobError, LEASE_SECONDS, truncateFailureMessage, type FailureKindValue, type FailureSignal, type JobStatusValue } from "@/lib/analysis-job-rules";
 import { importWeeklyReport, type WeeklyReportArticle } from "@/lib/collection";
-import { buildCollectionSearchPrompt, buildCollectionSearchSchema, COLLECTION_SEARCH_TIMEOUT_SECONDS, COLLECTION_SEARCH_WINDOW_DAYS, parseCollectionSearchPayload } from "@/lib/collection-search-prompt";
+import { buildCollectionSearchPrompt, buildCollectionSearchSchema, COLLECTION_SEARCH_TIMEOUT_SECONDS, parseCollectionSearchPayload } from "@/lib/collection-search-prompt";
 import { formatIsoDate } from "@/lib/jst-week";
+import { getWeekRange } from "@/lib/jst-week";
+import { weekCondition } from "@/lib/industry-information";
 import { getCollectionSearchPolicies, saveCollectionSearchPolicy } from "@/lib/collection-search-settings";
+import { notifyNewCandidates } from "@/lib/aide-bot-notice";
 
 /**
  * 業界ニュースの「収集ジョブ」（Codex CLIのWeb検索）。
@@ -81,17 +84,23 @@ export async function claimCollectionSearchJobs(host: string, take: number, now 
     const updated = await prisma.collectionSearchJob.updateMany({ where: { id: candidate.id, status: "QUEUED" }, data: { status: "RUNNING", startedAt: now, leaseExpiresAt, workerHost: host } });
     if (updated.count === 0) continue;
     const policies = await getCollectionSearchPolicies();
+    const range = getWeekRange(0, now);
     const [rejectedDelivery, rejectedLocker] = await Promise.all(
       (["DELIVERY", "LOCKER"] as const).map((business) =>
-        prisma.industryInformation.findMany({ where: { business, reviewedAt: { not: null }, weeklyCandidate: false }, orderBy: { reviewedAt: "desc" }, take: 10, select: { title: true } }),
+        prisma.industryInformation.findMany({ where: { business, reviewedAt: { not: null }, weeklyCandidate: false }, orderBy: { reviewedAt: "desc" }, take: 10, select: { title: true, reviewNote: true } }),
+      ),
+    );
+    const [existingDelivery, existingLocker] = await Promise.all(
+      (["DELIVERY", "LOCKER"] as const).map((business) =>
+        prisma.industryInformation.findMany({ where: { AND: [{ business }, weekCondition(range)] }, orderBy: { collectedAt: "desc" }, take: 30, select: { title: true, summary: true, normalizedUrl: true } }),
       ),
     );
     claimed.push({
       jobId: candidate.id,
       label: `${formatIsoDate(now)} の業界ニュース収集`,
       prompt: buildCollectionSearchPrompt(now, {
-        delivery: { policy: policies.DELIVERY.policy, instruction: policies.DELIVERY.pendingInstruction, rejectedArticles: rejectedDelivery.map((item) => item.title) },
-        locker: { policy: policies.LOCKER.policy, instruction: policies.LOCKER.pendingInstruction, rejectedArticles: rejectedLocker.map((item) => item.title) },
+        delivery: { policy: policies.DELIVERY.policy, instruction: policies.DELIVERY.pendingInstruction, rejectedArticles: rejectedDelivery.map((item) => ({ title: item.title, reason: item.reviewNote })), existingArticles: existingDelivery.map((item) => ({ title: item.title, summary: item.summary, url: item.normalizedUrl })) },
+        locker: { policy: policies.LOCKER.policy, instruction: policies.LOCKER.pendingInstruction, rejectedArticles: rejectedLocker.map((item) => ({ title: item.title, reason: item.reviewNote })), existingArticles: existingLocker.map((item) => ({ title: item.title, summary: item.summary, url: item.normalizedUrl })) },
       }),
       outputSchema: buildCollectionSearchSchema(),
       leaseExpiresAt: leaseExpiresAt.toISOString(),
@@ -147,7 +156,7 @@ export async function reportCollectionSearchResult(input: ReportCollectionSearch
   try {
     imported = await importWeeklyReport({
       executedAt: (job.startedAt ?? now).toISOString(),
-      targetFrom: new Date(now.getTime() - COLLECTION_SEARCH_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString(),
+      targetFrom: getWeekRange(0, now).start.toISOString(),
       targetTo: now.toISOString(),
       articles: parsed.articles satisfies WeeklyReportArticle[],
     });
@@ -177,8 +186,20 @@ export async function reportCollectionSearchResult(input: ReportCollectionSearch
       model: input.model,
       codexAuthMode: input.codexAuthMode,
       durationMs: input.durationMs,
+      searchReport: {
+        checkedRegions: parsed.searchReport.checkedRegions,
+        checkedSources: parsed.searchReport.checkedSources,
+        checkedThemes: parsed.searchReport.checkedThemes,
+        businessCounts: ["DELIVERY", "LOCKER"].map((business) => ({ business, count: parsed.articles.filter((article) => article.business === business).length })),
+        informationTypeCounts: [...new Set(parsed.articles.map((article) => article.informationType))].map((informationType) => ({ informationType, count: parsed.articles.filter((article) => article.informationType === informationType).length })),
+        overseasCount: parsed.articles.filter((article) => article.informationType === "OVERSEAS_CASE" || article.region !== null && article.region !== "日本").length,
+        snsCount: parsed.articles.filter((article) => article.informationType === "SOCIAL_TREND").length,
+      },
     },
   });
+  // cron起点のRSS通知と同じ週のdedupeKeyで上書きする。Codexの検索・統合結果を確定値として
+  // 0件の場合もAIDE Botへ残すため、通知失敗はこの完了記録へ影響させない。
+  await notifyNewCandidates(imported, "https://research-desk.gucchii.com/dashboard/analysis");
   await prisma.analysisWorker.updateMany({ where: { host: input.host }, data: { lastSeenAt: now, lastError: null } });
   return { ok: true, status: "COMPLETED" };
 }
@@ -199,6 +220,7 @@ export type CollectionSearchJobView = {
   /** 完了したときだけ入る。Codexが返した件数・読めずに落とした件数・取り込みの内訳。 */
   counts: { found: number; dropped: number; inserted: number; merged: number; duplicate: number; excluded: number } | null;
   durationMs: number | null;
+  searchReport: { checkedRegions: string[]; checkedSources: string[]; checkedThemes: string[]; businessCounts: { business: string; count: number }[]; informationTypeCounts: { informationType: string; count: number }[]; overseasCount: number; snsCount: number } | null;
 };
 
 /** 直近の収集ジョブ（待ち・実行中も含む）。1日1本が基本なので少数で足りる。 */
@@ -223,6 +245,7 @@ export async function listRecentCollectionSearchJobs(limit: number): Promise<Col
       duplicateCount: true,
       excludedCount: true,
       durationMs: true,
+      searchReport: true,
     },
   });
   return jobs.map((job) => ({
@@ -240,5 +263,20 @@ export async function listRecentCollectionSearchJobs(limit: number): Promise<Col
         ? { found: job.foundCount ?? 0, dropped: job.droppedCount ?? 0, inserted: job.insertedCount ?? 0, merged: job.mergedCount ?? 0, duplicate: job.duplicateCount ?? 0, excluded: job.excludedCount ?? 0 }
         : null,
     durationMs: job.durationMs,
+    searchReport: isSearchReport(job.searchReport),
   }));
+}
+
+function isSearchReport(value: unknown): CollectionSearchJobView["searchReport"] {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const strings = (item: unknown) => Array.isArray(item) ? item.filter((entry): entry is string => typeof entry === "string") : [];
+  const counts = (item: unknown, key: string) => Array.isArray(item) ? item.filter((entry): entry is Record<string, unknown> => typeof entry === "object" && entry !== null && typeof (entry as Record<string, unknown>)[key] === "string" && typeof (entry as Record<string, unknown>).count === "number").map((entry) => ({ [key]: entry[key] as string, count: entry.count as number })) : [];
+  return {
+    checkedRegions: strings(record.checkedRegions), checkedSources: strings(record.checkedSources), checkedThemes: strings(record.checkedThemes),
+    businessCounts: counts(record.businessCounts, "business") as { business: string; count: number }[],
+    informationTypeCounts: counts(record.informationTypeCounts, "informationType") as { informationType: string; count: number }[],
+    overseasCount: typeof record.overseasCount === "number" ? record.overseasCount : 0,
+    snsCount: typeof record.snsCount === "number" ? record.snsCount : 0,
+  };
 }

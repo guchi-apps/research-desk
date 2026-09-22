@@ -12,8 +12,7 @@
 
 export const DAY_MS = 24 * 60 * 60 * 1000;
 
-// 週の区切りは利用者のいるJST（UTC+9）の月曜0時（#125）。#43でいったん日曜0時にしたが、
-// カレンダーピッカー（月曜始まり表示）と同じ境界に揃えるため月曜へ戻した。どの日付項目を
+// 週の区切りは利用者のいるJST（UTC+9）の日曜0時。どの日付項目を
 // 優先して週を判定するか（公開日→発生日→収集期間）という#43の判断基準はこれと無関係で
 // 変えていない。サーバーのタイムゾーン設定に結果を左右させないため、Dateのローカルメソッドは
 // 使わずオフセットを足してUTCとして扱う。
@@ -30,12 +29,12 @@ export function parseWeekOffset(value: string | string[] | undefined, fallback =
   return Number.isInteger(parsed) && parsed >= OLDEST_WEEK_OFFSET && parsed <= 0 ? parsed : fallback;
 }
 
-/** 週送りのオフセットから、その週（JSTの月曜0時〜翌週の月曜0時）のUTC範囲を返す。 */
+/** 週送りのオフセットから、その週（JSTの日曜0時〜翌週の日曜0時）のUTC範囲を返す。 */
 export function getWeekRange(weekOffset: number, now = new Date()): WeekRange {
   const jstNow = new Date(now.getTime() + JST_OFFSET_MS);
-  const daysFromMonday = (jstNow.getUTCDay() + 6) % 7;
-  const mondayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromMonday + weekOffset * 7);
-  const start = new Date(mondayJst - JST_OFFSET_MS);
+  const daysFromSunday = jstNow.getUTCDay();
+  const sundayJst = Date.UTC(jstNow.getUTCFullYear(), jstNow.getUTCMonth(), jstNow.getUTCDate() - daysFromSunday + weekOffset * 7);
+  const start = new Date(sundayJst - JST_OFFSET_MS);
   return { start, end: new Date(start.getTime() + 7 * DAY_MS) };
 }
 
@@ -81,7 +80,7 @@ export function formatIsoDate(date: Date): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
-/** その日時がJSTでこの週の範囲に入るか。終端は排他（翌週の月曜0時ちょうどは含めない）。 */
+/** その日時がJSTでこの週の範囲に入るか。終端は排他（翌週の日曜0時ちょうどは含めない）。 */
 export function isWithinWeek(date: Date | null, range: WeekRange): boolean {
   return date !== null && date.getTime() >= range.start.getTime() && date.getTime() < range.end.getTime();
 }
@@ -90,12 +89,12 @@ export function isWithinWeek(date: Date | null, range: WeekRange): boolean {
 
 /** カレンダーの1マス。`weekOffset`は所属する週送りのオフセット（選べる範囲の外は`null`）。 */
 export type CalendarDay = { iso: string; day: number; weekOffset: number | null; isToday: boolean };
-/** カレンダーの1行＝1週間（月曜始まり）。 */
+/** カレンダーの1行＝1週間（日曜始まり）。 */
 export type CalendarWeekRow = { weekNumber: number; days: CalendarDay[] };
 export type CalendarMonth = { label: string; weeks: CalendarWeekRow[] };
 
-/** カレンダーピッカー用に、選べる週（`oldestOffset`〜0）を月曜始まりの行へ月ごとにまとめる。
- * 週の区切りが月曜0時始まりに揃っているため、選べる範囲は常に週の境界ちょうどで切れており、
+/** カレンダーピッカー用に、選べる週（`oldestOffset`〜0）を日曜始まりの行へ月ごとにまとめる。
+ * 週の区切りが日曜0時始まりに揃っているため、選べる範囲は常に週の境界ちょうどで切れており、
  * 月をまたぐ週（例: 8/31〜9/6）も1行の中で自然に表現できる。選べる範囲より後ろ（今週より先）は、
  * 直近月をカレンダーとして見やすくするため、月の終わりまで`weekOffset: null`の行で埋める。 */
 export function buildWeekCalendarMonths(now = new Date(), oldestOffset = OLDEST_WEEK_OFFSET): CalendarMonth[] {
@@ -122,7 +121,8 @@ export function buildWeekCalendarMonths(now = new Date(), oldestOffset = OLDEST_
 
   for (let offset = oldestOffset; offset <= 0; offset++) {
     const range = getWeekRange(offset, now);
-    monthFor(range.start).weeks.push({ weekNumber: getIsoWeekNumber(range.start), days: buildDays(range.start, offset, 7) });
+    // 日曜始まりの行でも、週番号は行に含まれる木曜日（4日後）のISO週番号で表す。
+    monthFor(range.start).weeks.push({ weekNumber: getIsoWeekNumber(new Date(range.start.getTime() + 4 * DAY_MS)), days: buildDays(range.start, offset, 7) });
   }
 
   // 選べる範囲より後ろ（今週より先）を、選択不可の行で当月末まで埋める。

@@ -275,7 +275,7 @@ export async function applyHumanReview(input: ReviewInput, now = new Date()): Pr
  * 入口で、これも人の判断なので`reviewedAt`を立てる（以降AIの判定で書き換わらない）。
  */
 export async function setWeeklyCandidate(articleId: string, weeklyCandidate: boolean, reviewedBy: string, now = new Date()): Promise<boolean> {
-  return (await setTriageDecision([articleId], weeklyCandidate, reviewedBy, now)) > 0;
+  return (await setTriageDecision([articleId], weeklyCandidate, reviewedBy, null, now)) > 0;
 }
 
 /**
@@ -289,11 +289,15 @@ export async function setWeeklyCandidate(articleId: string, weeklyCandidate: boo
  * ここで解析ジョブも積む（#154）。** 採用した記事は週報の材料として扱われるため、「AI解析」を
  * 押し忘れたまま週報を作ってしまう手戻りを防ぐ。既に解析済み・実行中・失敗済みの記事は対象外
  * （再解析は引き続き手動の「再解析」ボタンから行う）。
+ *
+ * **`note`（任意）は記事詳細画面の「メモ」欄（`reviewNote`）と共用する**（#194）。不採用の理由を
+ * 書けるようにし、収集ジョブ（`claimCollectionSearchJobs()`）が次回のプロンプトへ渡す材料にする。
+ * `null`のときは既存のメモを上書きしない。
  */
-export async function setTriageDecision(articleIds: string[], adopt: boolean, reviewedBy: string, now = new Date()): Promise<number> {
+export async function setTriageDecision(articleIds: string[], adopt: boolean, reviewedBy: string, note: string | null = null, now = new Date()): Promise<number> {
   if (articleIds.length === 0) return 0;
   const unanalyzed = adopt ? (await prisma.industryInformation.findMany({ where: { id: { in: articleIds }, analysisStatus: null }, select: { id: true } })).map((row) => row.id) : [];
-  const updated = await prisma.industryInformation.updateMany({ where: { id: { in: articleIds } }, data: { weeklyCandidate: adopt, reviewedAt: now, reviewedBy } });
+  const updated = await prisma.industryInformation.updateMany({ where: { id: { in: articleIds } }, data: { weeklyCandidate: adopt, reviewedAt: now, reviewedBy, ...(note !== null ? { reviewNote: note } : {}) } });
   for (const articleId of unanalyzed) await enqueueAnalysisJob(articleId, reviewedBy);
   return updated.count;
 }

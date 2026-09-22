@@ -4,7 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useRef, useState } from "react";
 import type { CalendarMonth, CalendarWeekRow } from "@/lib/industry-information";
 
-const WEEKDAY_LABELS = ["月", "火", "水", "木", "金", "土", "日"];
+const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"];
 
 // "YYYY-MM-DD" から "M月D日" だけを取り出す。日付計算はサーバー側（jst-week.ts）で
 // 済ませてあるので、ここではDateを作り直さず文字列のまま扱う。

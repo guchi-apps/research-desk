@@ -54,7 +54,10 @@ export function parseTriageParam(value: string | string[] | undefined): TriagePa
 export const MAX_TRIAGE_IDS = 100;
 
 export type TriageDecision = "adopt" | "reject";
-export type TriageRequest = { articleIds: string[]; decision: TriageDecision };
+export type TriageRequest = { articleIds: string[]; decision: TriageDecision; note: string | null };
+
+/** `note`（不採用理由等のメモ）の保存上限。`AnalysisReviewForm`のメモ欄と揃える。 */
+export const TRIAGE_NOTE_LIMIT = 500;
 
 /** `POST /api/articles/triage`の本文を検証する。重複IDは1つにまとめ、空・上限超過・不正な値はnull。 */
 export function parseTriageRequest(body: unknown): TriageRequest | null {
@@ -64,7 +67,8 @@ export function parseTriageRequest(body: unknown): TriageRequest | null {
   if (!Array.isArray(input.articleIds)) return null;
   const articleIds = [...new Set(input.articleIds.filter((id): id is string => typeof id === "string" && id.trim() !== ""))];
   if (articleIds.length === 0 || articleIds.length > MAX_TRIAGE_IDS) return null;
-  return { articleIds, decision: input.decision };
+  const note = typeof input.note === "string" && input.note.trim() !== "" ? input.note.trim().slice(0, TRIAGE_NOTE_LIMIT) : null;
+  return { articleIds, decision: input.decision, note };
 }
 
 // --- 週あたり上限との関係（`src/lib/collection.ts`） --------------------------------------

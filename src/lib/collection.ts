@@ -17,7 +17,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 type Business = "DELIVERY" | "LOCKER";
 type InformationType = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "QUALITY_SAFETY" | "OVERSEAS_CASE" | "OTHER";
 type Candidate = { business: Business; title: string; url: string; sourceName: string; publisher: string | null; publishedAt: Date; isSupplemental: boolean; informationType: InformationType; importance: "HIGH" | "MEDIUM" | "REFERENCE"; keywords: string[]; tags: string[] };
-type InformationTypeValue = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "RECRUITMENT_PARTNERSHIP" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "CONSTRUCTION" | "QUALITY_SAFETY" | "PATENT" | "OVERSEAS_CASE" | "OTHER";
+type InformationTypeValue = "NEW_PRODUCT" | "COMPETITOR" | "INTRODUCTION_CASE" | "RECRUITMENT_PARTNERSHIP" | "POLICY_SUBSIDY" | "MARKET_STATISTICS" | "USER_ISSUE" | "CONSTRUCTION" | "QUALITY_SAFETY" | "PATENT" | "ACADEMIC_RESEARCH" | "VIDEO" | "SOCIAL_TREND" | "OVERSEAS_CASE" | "OTHER";
 
 export type CollectionResult = { runId: string; status: "SUCCEEDED" | "PARTIAL" | "FAILED"; targetFrom: string; targetTo: string; supplementalFrom: string; fetchedCount: number; selectedCount: number; insertedCount: number; duplicateCount: number; mergedCount: number; excludedCount: number; failedCount: number; errors: string[] };
 
@@ -63,6 +63,7 @@ export type WeeklyReportArticle = {
   importance?: ImportanceValue;
   targetCompany?: string | null;
   targetProduct?: string | null;
+  region?: string | null;
   keywords?: string[];
   tags?: string[];
   periodScope?: "IN_SCOPE" | "PAST_30_DAYS_SUPPLEMENT";
@@ -108,6 +109,7 @@ export type EventArticleInput = {
   importance?: ImportanceValue;
   targetCompany?: string | null;
   targetProduct?: string | null;
+  region?: string | null;
   keywords?: string[];
   tags?: string[];
   periodScope?: "IN_SCOPE" | "PAST_30_DAYS_SUPPLEMENT";
@@ -186,6 +188,7 @@ function mergeMetrics(existing: Prisma.JsonValue | null | undefined, incoming: P
 const CHANGE_LABELS: Partial<Record<keyof EventArticleInput, string>> = {
   extractedMetrics: "主要数値",
   targetProduct: "対象製品・対象地域",
+  region: "対象地域",
   targetCompany: "対象企業",
   summary: "要約",
   content: "本文",
@@ -204,6 +207,7 @@ type WeekPeer = {
   sourceName: string;
   targetCompany: string | null;
   targetProduct: string | null;
+  region: string | null;
   occurredAt: Date | null;
   publishedAt: Date | null;
   importance: ImportanceValue;
@@ -221,7 +225,7 @@ type WeekPeer = {
 
 const WEEK_PEER_SELECT = {
   id: true, business: true, informationType: true, title: true, publisher: true, sourceName: true,
-  targetCompany: true, targetProduct: true, occurredAt: true, publishedAt: true, importance: true,
+  targetCompany: true, targetProduct: true, region: true, occurredAt: true, publishedAt: true, importance: true,
   isPrimarySource: true, extractedMetrics: true, summary: true, implications: true, content: true,
   mergedSources: true, normalizedUrl: true, weeklyCandidate: true, reviewedAt: true,
 } satisfies Prisma.IndustryInformationSelect;
@@ -235,7 +239,7 @@ async function mergeIntoExisting(existing: WeekPeer, article: EventArticleInput,
   const metrics = mergeMetrics(existing.extractedMetrics, article.extractedMetrics);
   if (metrics !== undefined) { data.extractedMetrics = metrics; changed.push("extractedMetrics"); }
 
-  for (const key of ["targetProduct", "targetCompany", "implications", "summary", "content"] as const) {
+  for (const key of ["targetProduct", "targetCompany", "region", "implications", "summary", "content"] as const) {
     const incoming = article[key];
     if (incoming && incoming !== existing[key]) { data[key] = incoming; changed.push(key); }
   }
@@ -301,6 +305,7 @@ function toCreateData(article: EventArticleInput, runId: string, normalizedUrl: 
     importance: article.importance ?? "REFERENCE",
     targetCompany: article.targetCompany ?? null,
     targetProduct: article.targetProduct ?? null,
+    region: article.region ?? null,
     keywords: article.keywords ?? [],
     tags: article.tags ?? [],
     periodScope: article.periodScope ?? "IN_SCOPE",
@@ -418,6 +423,7 @@ export async function importWeeklyReport(input: WeeklyReportInput): Promise<Week
         importance: article.importance ?? "REFERENCE",
         targetCompany: article.targetCompany ?? null,
         targetProduct: article.targetProduct ?? null,
+        region: article.region ?? null,
         keywords: article.keywords ?? [],
         tags: article.tags ?? [],
         periodScope: article.periodScope ?? "IN_SCOPE",
@@ -473,7 +479,7 @@ function selectCandidates(candidates: Candidate[]): Candidate[] {
 
 /**
  * 宅配・ロッカー業界情報の日次収集（#43。従来は週次のみだった`runWeeklyCollection`を改名）。
- * `targetFrom`は「今週（JST月曜0時始まり）の開始」に固定する。ローリング7日窓のままだと
+ * `targetFrom`は「今週（JST日曜0時始まり）の開始」に固定する。ローリング7日窓のままだと
  * 日次実行のたびに週境界をまたぐランが発生し、週内へ集約する前提が崩れるため。
  */
 export async function runDailyCollection(now = new Date()): Promise<CollectionResult> {
