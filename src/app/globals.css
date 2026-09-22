@@ -101,14 +101,11 @@ ul.history{margin:0;padding:0;display:flex;flex-direction:column}ul.history li{l
 .picker-head button{border:0;background:none;color:var(--muted);font-size:16px;cursor:pointer;line-height:1;padding:2px}
 .picker-legend{display:flex;gap:14px;font-size:10.5px;color:var(--muted);margin-bottom:10px}
 .picker-legend b{display:inline-flex;align-items:center;gap:5px;font-weight:400}
-.dot-today{width:9px;height:9px;border-radius:50%;border:2px solid var(--navy);display:inline-block}
 .dot-selected{width:9px;height:9px;border-radius:2px;background:var(--teal-pale);border:1px solid var(--teal);display:inline-block}
 .month-block{margin-bottom:10px}
 .month-title{font-size:11.5px;font-weight:700;color:var(--ink);margin:6px 0 6px}
-.cal-grid{display:grid;grid-template-columns:26px repeat(7,1fr);gap:2px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
 .cal-grid .gcell{display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--muted);height:28px}
-.cal-grid .weeknum-head{font-size:9px;color:#b6c4c2}
-.cal-grid .weeknum{font-size:9.5px;color:#9fb0ae;font-variant-numeric:tabular-nums}
 .cal-grid a.daynum{color:var(--ink);text-decoration:none}
 .cal-grid .daynum{position:relative;border-radius:6px}
 .cal-grid .daynum span{position:relative;z-index:2}
@@ -117,17 +114,19 @@ ul.history{margin:0;padding:0;display:flex;flex-direction:column}ul.history li{l
 .cal-grid .daynum.in-hover{background:#eef1f4;color:#33474f}
 .cal-grid .daynum.in-selected.row-start,.cal-grid .daynum.in-hover.row-start{border-top-left-radius:8px;border-bottom-left-radius:8px}
 .cal-grid .daynum.in-selected.row-end,.cal-grid .daynum.in-hover.row-end{border-top-right-radius:8px;border-bottom-right-radius:8px}
-.cal-grid .daynum.today span{box-shadow:0 0 0 2px var(--navy) inset;border-radius:50%}
-.cal-grid .daynum.today{font-weight:700}
 .picker-foot{margin-top:8px;padding-top:10px;border-top:1px dashed var(--line);font-size:11.5px;color:var(--muted)}
 .picker-foot b{color:var(--ink)}
 .picker-foot .tag{font-size:10px;font-weight:700;color:var(--teal);background:var(--teal-pale);padding:1px 8px;border-radius:99px;margin-left:6px}
 .picker-note{font-size:10px;color:#9fb0ae;margin-top:6px;line-height:1.6}
+.picker-scrim{display:none}
+.picker-handle{display:none}
 @media(max-width:767px){
   .week-trigger{font-size:12px;gap:5px;padding:6px 4px}
-  .picker{position:static;transform:none;width:auto;max-height:none;margin-top:10px;border-radius:12px}
-  .cal-grid{grid-template-columns:20px repeat(7,1fr)}
-  .cal-grid .gcell{height:24px;font-size:9px}
+  .picker-scrim{display:block;position:fixed;inset:0;background:rgba(18,32,36,.5);border:0;padding:0;z-index:29}
+  .picker{position:fixed;left:0;right:0;top:auto;bottom:0;transform:none;width:auto;max-height:78vh;margin-top:0;border-radius:20px 20px 0 0;display:flex;flex-direction:column;overflow:visible;padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));z-index:30;box-shadow:0 -14px 34px -10px rgba(10,20,20,.35)}
+  .picker-handle{display:block;flex:none;width:36px;height:4px;border-radius:99px;background:var(--line);margin:2px auto 8px}
+  .picker-scroll{overflow-y:auto;flex:1;min-height:0}
+  .cal-grid .gcell{height:30px;font-size:11px}
 }
 
 /* 業界ニュースを初期画面にした際の「新着記事あります」バナー（#124）。未判定の記事が
