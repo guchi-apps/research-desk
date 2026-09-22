@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getCollectionSearchPolicy, requestCollectionSearchPolicyAdjustment } from "@/lib/collection-search-settings";
+import { getCollectionSearchPolicies, requestCollectionSearchPolicyAdjustment, type CollectionSearchBusiness, type CollectionSearchPolicyView } from "@/lib/collection-search-settings";
 
 export const runtime = "nodejs";
 
@@ -9,19 +9,26 @@ async function authorized() {
   return user.status === "authenticated" ? null : NextResponse.json({ error: "unauthorized" }, { status: user.status === "unavailable" ? 503 : 401 });
 }
 
+function serialize(value: CollectionSearchPolicyView) {
+  return { policy: value.policy, pendingInstruction: value.pendingInstruction, updatedAt: value.updatedAt.toISOString() };
+}
+
 export async function GET() {
   const denied = await authorized();
   if (denied) return denied;
-  const value = await getCollectionSearchPolicy();
-  return NextResponse.json({ policy: value.policy, pendingInstruction: value.pendingInstruction, updatedAt: value.updatedAt.toISOString() }, { headers: { "Cache-Control": "no-store" } });
+  const policies = await getCollectionSearchPolicies();
+  return NextResponse.json({ DELIVERY: serialize(policies.DELIVERY), LOCKER: serialize(policies.LOCKER) }, { headers: { "Cache-Control": "no-store" } });
 }
 
 export async function POST(request: Request) {
   const denied = await authorized();
   if (denied) return denied;
   const body: unknown = await request.json().catch(() => null);
-  const instruction = typeof (body as { instruction?: unknown } | null)?.instruction === "string" ? (body as { instruction: string }).instruction : "";
-  const value = await requestCollectionSearchPolicyAdjustment(instruction);
+  const parsed = body as { business?: unknown; instruction?: unknown } | null;
+  const business: CollectionSearchBusiness | null = parsed?.business === "DELIVERY" || parsed?.business === "LOCKER" ? parsed.business : null;
+  const instruction = typeof parsed?.instruction === "string" ? parsed.instruction : "";
+  if (!business) return NextResponse.json({ error: "invalid_business" }, { status: 400 });
+  const value = await requestCollectionSearchPolicyAdjustment(business, instruction);
   if (!value) return NextResponse.json({ error: "invalid_instruction" }, { status: 400 });
-  return NextResponse.json({ policy: value.policy, pendingInstruction: value.pendingInstruction, updatedAt: value.updatedAt.toISOString() });
+  return NextResponse.json(serialize(value));
 }
