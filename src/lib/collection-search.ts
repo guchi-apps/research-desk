@@ -83,15 +83,15 @@ export async function claimCollectionSearchJobs(host: string, take: number, now 
     const policies = await getCollectionSearchPolicies();
     const [rejectedDelivery, rejectedLocker] = await Promise.all(
       (["DELIVERY", "LOCKER"] as const).map((business) =>
-        prisma.industryInformation.findMany({ where: { business, reviewedAt: { not: null }, weeklyCandidate: false }, orderBy: { reviewedAt: "desc" }, take: 10, select: { title: true } }),
+        prisma.industryInformation.findMany({ where: { business, reviewedAt: { not: null }, weeklyCandidate: false }, orderBy: { reviewedAt: "desc" }, take: 10, select: { title: true, reviewNote: true } }),
       ),
     );
     claimed.push({
       jobId: candidate.id,
       label: `${formatIsoDate(now)} の業界ニュース収集`,
       prompt: buildCollectionSearchPrompt(now, {
-        delivery: { policy: policies.DELIVERY.policy, instruction: policies.DELIVERY.pendingInstruction, rejectedArticles: rejectedDelivery.map((item) => item.title) },
-        locker: { policy: policies.LOCKER.policy, instruction: policies.LOCKER.pendingInstruction, rejectedArticles: rejectedLocker.map((item) => item.title) },
+        delivery: { policy: policies.DELIVERY.policy, instruction: policies.DELIVERY.pendingInstruction, rejectedArticles: rejectedDelivery.map((item) => ({ title: item.title, reason: item.reviewNote })) },
+        locker: { policy: policies.LOCKER.policy, instruction: policies.LOCKER.pendingInstruction, rejectedArticles: rejectedLocker.map((item) => ({ title: item.title, reason: item.reviewNote })) },
       }),
       outputSchema: buildCollectionSearchSchema(),
       leaseExpiresAt: leaseExpiresAt.toISOString(),

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { decideWeeklyCap, getTriageState, isHigherPriority, parseTriageParam, parseTriageRequest, MAX_TRIAGE_IDS } from "./triage.ts";
+import { decideWeeklyCap, getTriageState, isHigherPriority, parseTriageParam, parseTriageRequest, MAX_TRIAGE_IDS, TRIAGE_NOTE_LIMIT } from "./triage.ts";
 
 const at = new Date("2026-09-01T00:00:00Z");
 
@@ -27,7 +27,7 @@ describe("parseTriageParam", () => {
 
 describe("parseTriageRequest", () => {
   it("記事IDの重複をまとめ、判断の種類を検証する", () => {
-    assert.deepEqual(parseTriageRequest({ articleIds: ["a", "b", "a", " "], decision: "reject" }), { articleIds: ["a", "b"], decision: "reject" });
+    assert.deepEqual(parseTriageRequest({ articleIds: ["a", "b", "a", " "], decision: "reject" }), { articleIds: ["a", "b"], decision: "reject", note: null });
     assert.equal(parseTriageRequest({ articleIds: ["a"], decision: "delete" }), null);
     assert.equal(parseTriageRequest({ articleIds: [], decision: "adopt" }), null);
     assert.equal(parseTriageRequest({ articleIds: "a", decision: "adopt" }), null);
@@ -37,6 +37,13 @@ describe("parseTriageRequest", () => {
     const articleIds = Array.from({ length: MAX_TRIAGE_IDS + 1 }, (_, index) => `id-${index}`);
     assert.equal(parseTriageRequest({ articleIds, decision: "adopt" }), null);
     assert.equal(parseTriageRequest({ articleIds: articleIds.slice(0, MAX_TRIAGE_IDS), decision: "adopt" })?.articleIds.length, MAX_TRIAGE_IDS);
+  });
+  it("不採用の理由（note）は前後の空白を落とし、上限文字数で切り詰める", () => {
+    assert.equal(parseTriageRequest({ articleIds: ["a"], decision: "reject", note: "  芸能記事のため  " })?.note, "芸能記事のため");
+    assert.equal(parseTriageRequest({ articleIds: ["a"], decision: "reject", note: "   " })?.note, null);
+    assert.equal(parseTriageRequest({ articleIds: ["a"], decision: "reject" })?.note, null);
+    const long = "あ".repeat(TRIAGE_NOTE_LIMIT + 50);
+    assert.equal(parseTriageRequest({ articleIds: ["a"], decision: "reject", note: long })?.note?.length, TRIAGE_NOTE_LIMIT);
   });
 });
 
