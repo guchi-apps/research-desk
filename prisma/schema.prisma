@@ -329,12 +329,12 @@ model CollectionSearchJob {
   @@map("collection_search_jobs")
 }
 
-// 業界ニュース収集でAIが使う検索・判定基準。個人利用のアプリなので固定IDの1件だけを持つ。
+// 業界ニュース収集でAIが使う検索・判定基準。事業（DELIVERY/LOCKER）ごとに1件ずつ持つ（#211）。
 model CollectionSearchPolicy {
-  id                 Int      @id @default(1)
-  policy             String   @db.Text
-  pendingInstruction String?  @db.Text
-  updatedAt          DateTime @updatedAt
+  business           IndustryBusiness @id
+  policy             String           @db.Text
+  pendingInstruction String?          @db.Text
+  updatedAt          DateTime         @updatedAt
 
   @@map("collection_search_policy")
 }
