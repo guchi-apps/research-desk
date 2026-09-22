@@ -9,7 +9,8 @@ export const runtime = "nodejs";
  * 記事をまとめて採用／不採用にする（#94）。
  *
  * 新着記事画面のカードのボタン（1件）と、チェックした複数件をまとめて仕分けるバーの両方が
- * ここを呼ぶ。本文は`{ articleIds: string[], decision: "adopt" | "reject" }`。
+ * ここを呼ぶ。本文は`{ articleIds: string[], decision: "adopt" | "reject", note?: string }`。
+ * `note`は不採用理由等のメモ（任意）で、記事詳細画面の「メモ」欄（`reviewNote`）と共用する。
  * 認証はブラウザ→サーバー方向なのでSupabaseセッション（`getCurrentUser()`）。
  */
 export async function POST(request: Request) {
@@ -26,7 +27,7 @@ export async function POST(request: Request) {
   const input = parseTriageRequest(body);
   if (!input) return NextResponse.json({ error: "invalid_input" }, { status: 400 });
 
-  const updated = await setTriageDecision(input.articleIds, input.decision === "adopt", user.user.email);
+  const updated = await setTriageDecision(input.articleIds, input.decision === "adopt", user.user.email, input.note);
   if (updated === 0) return NextResponse.json({ error: "not_found" }, { status: 404 });
   return NextResponse.json({ ok: true, updated }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -58,8 +58,8 @@ describe("buildCollectionSearchPrompt", () => {
 
   it("不採用記事と調整指示を事業ごとの基準として渡す", () => {
     const prompt = buildCollectionSearchPrompt(NOW, {
-      delivery: { policy: "宅配は人事記事を採用しない", instruction: "ポスト社長を避ける", rejectedArticles: ["ポスト社長に就任"], existingArticles: [{ title: "既存の宅配記事", summary: "既存要約", url: "https://example.com/delivery" }] },
-      locker: { policy: "ロッカーは芸能記事を採用しない", instruction: "俳優の話題を避ける", rejectedArticles: ["俳優がロッカーを利用"], existingArticles: [] },
+      delivery: { policy: "宅配は人事記事を採用しない", instruction: "ポスト社長を避ける", rejectedArticles: [{ title: "ポスト社長に就任", reason: null }], existingArticles: [{ title: "既存の宅配記事", summary: "既存要約", url: "https://example.com/delivery" }] },
+      locker: { policy: "ロッカーは芸能記事を採用しない", instruction: "俳優の話題を避ける", rejectedArticles: [{ title: "俳優がロッカーを利用", reason: null }], existingArticles: [] },
     });
     assert.ok(prompt.includes("宅配は人事記事を採用しない"));
     assert.ok(prompt.includes("ポスト社長を避ける"));
@@ -68,6 +68,16 @@ describe("buildCollectionSearchPrompt", () => {
     assert.ok(prompt.includes("俳優の話題を避ける"));
     assert.ok(prompt.includes("俳優がロッカーを利用"));
     assert.ok(prompt.includes("既存の宅配記事"));
+  });
+
+  it("不採用記事に理由が添えられていれば、その理由も渡す（#194）", () => {
+    const prompt = buildCollectionSearchPrompt(NOW, {
+      delivery: { policy: "宅配の基準", instruction: null, rejectedArticles: [{ title: "ポスト社長に就任", reason: "宅配と無関係な人事記事のため" }], existingArticles: [] },
+      locker: { policy: "ロッカーの基準", instruction: null, rejectedArticles: [{ title: "俳優がロッカーを利用", reason: null }], existingArticles: [] },
+    });
+    assert.ok(prompt.includes("ポスト社長に就任（理由: 宅配と無関係な人事記事のため）"));
+    assert.ok(prompt.includes("俳優がロッカーを利用"));
+    assert.ok(!prompt.includes("俳優がロッカーを利用（理由:"));
   });
 });
 

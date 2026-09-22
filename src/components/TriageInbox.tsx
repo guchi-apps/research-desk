@@ -17,6 +17,9 @@ type Props = {
  * この`<form>`にバブルしてくる`change`で件数を数え直す。カードそのものはサーバーコンポーネントの
  * ままにしたいので、選択状態をReactのstateで持たず、送信時に`FormData`から読む。
  * バーはPC・iPadでは一覧の上に貼り付き、スマホでは画面下に固定する（`globals.css`）。
+ *
+ * **「✕ 不採用」は即送信せず、理由（任意・選択した全件に共通）を書ける欄をいったん開く**（#194）。
+ * `TriageActions`と同じく`reviewNote`へ保存し、収集ジョブのプロンプト自動修正の参考にする。
  */
 export default function TriageInbox({ total, children }: Props) {
   const router = useRouter();
@@ -25,6 +28,8 @@ export default function TriageInbox({ total, children }: Props) {
   const [busy, setBusy] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [reasonOpen, setReasonOpen] = useState(false);
+  const [reason, setReason] = useState("");
 
   function selectedIds(): string[] {
     const form = formRef.current;
@@ -41,15 +46,17 @@ export default function TriageInbox({ total, children }: Props) {
     recount();
   }
 
-  async function decide(decision: TriageDecision) {
+  async function decide(decision: TriageDecision, note?: string) {
     const articleIds = selectedIds();
     if (articleIds.length === 0) return;
     setError(null);
     setBusy(true);
     try {
-      const response = await fetch("/api/articles/triage", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ articleIds, decision }) });
+      const response = await fetch("/api/articles/triage", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ articleIds, decision, ...(note ? { note } : {}) }) });
       if (response.ok) {
         toggleAll(false);
+        setReasonOpen(false);
+        setReason("");
       } else {
         setError("保存できませんでした。しばらくしてからもう一度お試しください。");
       }
@@ -71,8 +78,18 @@ export default function TriageInbox({ total, children }: Props) {
         </label>
         <span className={`count ${selected === 0 ? "dim" : ""}`}>{selected === 0 ? "チェックした記事をまとめて仕分けます" : `${selected}件を選択中`}</span>
         <span className="spacer" />
-        <button className="btn adopt" type="button" disabled={disabled} onClick={() => void decide("adopt")}>✓ 採用</button>
-        <button className="btn reject" type="button" disabled={disabled} onClick={() => void decide("reject")}>✕ 不採用</button>
+        {reasonOpen ? (
+          <>
+            <input className="bulk-reason-input" type="text" maxLength={500} placeholder="不採用の理由（任意）" value={reason} disabled={disabled} onChange={(event) => setReason(event.target.value)} />
+            <button className="btn reject" type="button" disabled={disabled} onClick={() => void decide("reject", reason)}>不採用にする</button>
+            <button className="btn quiet" type="button" disabled={disabled} onClick={() => { setReasonOpen(false); setReason(""); }}>キャンセル</button>
+          </>
+        ) : (
+          <>
+            <button className="btn adopt" type="button" disabled={disabled} onClick={() => void decide("adopt")}>✓ 採用</button>
+            <button className="btn reject" type="button" disabled={disabled} onClick={() => setReasonOpen(true)}>✕ 不採用</button>
+          </>
+        )}
         {error && <span className="ai-error">{error}</span>}
       </div>
       {children}

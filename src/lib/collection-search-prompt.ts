@@ -80,7 +80,8 @@ const METRICS_MAX_JSON_LENGTH = 2000;
  * 品質を見比べる間は、両者が独立に選んだ結果を比べたい（渡すと重なりが見えなくなる）。
  * 重複はURL一致と同一イベントの統合（#43）が取り込み側で処理する。
  */
-export type CollectionSearchBusinessContext = { policy: string; instruction: string | null; rejectedArticles: string[]; existingArticles: { title: string; summary: string | null; url: string }[] };
+export type RejectedArticle = { title: string; reason: string | null };
+export type CollectionSearchBusinessContext = { policy: string; instruction: string | null; rejectedArticles: RejectedArticle[]; existingArticles: { title: string; summary: string | null; url: string }[] };
 export type CollectionSearchPolicyContext = { delivery: CollectionSearchBusinessContext; locker: CollectionSearchBusinessContext };
 
 function businessPolicySection(label: string, business: CollectionSearchBusinessContext): string[] {
@@ -88,7 +89,9 @@ function businessPolicySection(label: string, business: CollectionSearchBusiness
     `### ${label}`,
     "",
     business.policy,
-    ...(business.rejectedArticles.length ? ["", "利用者が不採用にした記事（同じ傾向を避ける参考）:", ...business.rejectedArticles.map((title) => `- ${title}`)] : []),
+    ...(business.rejectedArticles.length
+      ? ["", "利用者が不採用にした記事（同じ傾向を避ける参考。理由が添えられているものは特に重視する）:", ...business.rejectedArticles.map((article) => `- ${article.title}${article.reason ? `（理由: ${article.reason}）` : ""}`)]
+      : []),
     ...(business.instruction ? ["", "利用者からの調整指示:", business.instruction] : []),
     ...(business.existingArticles.length ? ["", "同じ週に掲載済みの記事（新規・更新差分の確認に使う）:", ...business.existingArticles.map((article) => `- ${article.title}: ${article.summary ?? "要約なし"} (${article.url})`)] : []),
     "",
