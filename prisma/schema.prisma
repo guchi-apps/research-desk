@@ -343,3 +343,18 @@ model CollectionSearchPolicy {
 
   @@map("collection_search_policy")
 }
+
+// 新着記事のPush通知（#231）の購読。端末（ブラウザ・ホーム画面アプリ）ごとに1行。
+// ログインできるのは許可リストの本人だけなので、ユーザーとの紐付けは持たない。
+model PushSubscription {
+  id        String   @id @default(cuid())
+  // Push serviceのURL。同じ端末が再購読すると同じ値になるため、これで一意にする。
+  // VarChar(768)は、utf8mb4の一意インデックス上限（3072バイト）に収まる範囲
+  endpoint  String   @unique @db.VarChar(768)
+  p256dh    String   @db.VarChar(255)
+  auth      String   @db.VarChar(255)
+  userAgent String?  @db.VarChar(255)
+  createdAt DateTime @default(now())
+
+  @@map("push_subscriptions")
+}

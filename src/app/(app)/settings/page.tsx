@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
 import { APP_CHANGELOG } from "@/lib/changelog";
+import PushToggle from "@/components/PushToggle";
 import CollectionSearchSettings, { type BusinessPolicyProps } from "@/components/CollectionSearchSettings";
 import { getCollectionSearchPolicies } from "@/lib/collection-search-settings";
 import { DELIVERY_SCOPE, LOCKER_SCOPE } from "@/lib/analysis-prompt";
@@ -19,6 +20,7 @@ export default async function SettingsPage() {
 
   return <section className="content"><Link className="breadcrumb" href="/dashboard">‹　業界ニュースへ戻る</Link><header className="page-header"><div><p className="eyebrow">SETTINGS</p><h1>設定</h1><p className="lead">アカウント情報の確認と、アプリの更新履歴をまとめて確認できます。</p></div></header>
     <CollectionSearchSettings businesses={businesses} />
+    <PushToggle />
     <div className="settings-card">
       <h2>アカウント</h2>
       <p className="desc">ログイン中のGoogleアカウント</p>
