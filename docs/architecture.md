@@ -960,3 +960,16 @@ Web Pushで「今日の新着記事がN件あります」を送る。0件の日�
   aide-bot通知（`notifyNewCandidates()`）とは独立して動く
 - iPhoneはホーム画面に追加したアプリ（iOS 16.4以降）でのみ受け取れる
 - 判定ロジックはPrisma非依存の`src/lib/push-rules.ts`に置き`pnpm test`で検証する
+
+## バンプPRの自動マージ（#238）
+
+バージョンbump PR（`release/vX.Y.Z` → `develop`）は、`release-develop-to-main.yml`が呼ぶ共有workflowが
+PR作成直後に`gh pr merge --auto --merge`を実行して、CI通過後に自動マージさせる。マージでpackage.jsonの
+versionが変わると、pushトリガーでdevelop→mainのPRが自動作成される。
+
+- **前提は`develop`のブランチ保護。** GitHub Auto-mergeは必須ステータスチェックが無いブランチでは
+  「既にマージ可能」として有効化を断られる（`Pull request is in clean status`）。v1.16.0のバンプPR（#236）は
+  これでCI完了後も約23分手動マージ待ちになった
+- 設定値（dayspan・issue-deckと同じ）: 必須チェック`lint-and-build`・strict=false・enforce_admins=false・
+  レビュー必須なし・force push/削除禁止。`main`は別途ruleset（`protect main`）で保護している
+- 確認: `gh api repos/guchi-apps/research-desk/branches/develop/protection`
