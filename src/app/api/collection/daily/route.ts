@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { hasCollectionCronSecret } from "@/lib/internal-auth";
 import { notifyNewCandidates } from "@/lib/aide-bot-notice";
+import { notifyNewArticlesPush } from "@/lib/push-notice";
 import { runDailyCollection } from "@/lib/collection";
 import { enqueueCollectionSearch } from "@/lib/collection-search";
 import { getRequestOrigin } from "@/lib/request-origin";
@@ -19,6 +20,7 @@ export async function POST(request: Request) {
   try {
     const result = await runDailyCollection();
     await notifyNewCandidates(result, `${getRequestOrigin(request)}/dashboard`);
+    await notifyNewArticlesPush(result.insertedCount);
     return NextResponse.json({ ...result, collectionSearch });
   } catch (error) {
     // Prismaの生のエラー文などを応答へ載せない。詳細はサーバーログへ出す（#170）。

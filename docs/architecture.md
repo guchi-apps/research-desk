@@ -940,3 +940,23 @@ VPSのポーラー → claim（kind: "collection_search"）→ codex exec ＋ We
 - **右カラムの「自動収集」欄は、待ち・実行中・要対応の並び（`orderQueue()`）とは切り離している**（#189）。
   収集ジョブ（`CollectionSearchJob`）は直近5回を`listRecentCollectionSearchJobs()`で別に読み、状態・所要時間・
   取り込みの内訳を出す。記事の解析キューと混ぜると、`QueueItem`の`kind`と並び順の前提が広がるため
+
+## 新着記事のPush通知（#231）
+
+日次収集（`POST /api/collection/daily`）で新規記事（`insertedCount`>0）が入った日に、購読済みの端末へ
+Web Pushで「今日の新着記事がN件あります」を送る。0件の日は送らない。タップで`/dashboard/inbox`を開く。
+
+- **`web-push`＋VAPID＋Service Worker（`public/sw.js`）。** issue-deckと同じ方式。SWは`push`表示と
+  `notificationclick`だけで、`fetch`は扱わない（#68の方針のまま）。登録するのは設定画面の
+  `PushToggle`だけ。`src/proxy.ts`のmatcherは`/`と`/dashboard`配下だけなので`/sw.js`は素通し
+- **購読は`PushSubscription`（`push_subscriptions`）に端末ごと1行。** ユーザーとの紐付けは持たない
+  （許可リストの本人だけがログインできるため）。`endpoint`で一意。Push serviceが404/410を返した
+  購読は送信時に削除し、5xxなど一時的な失敗は残す（`isSubscriptionGone()`）
+- **環境変数は`VAPID_PUBLIC_KEY`・`VAPID_PRIVATE_KEY`・`VAPID_SUBJECT`の3つ。** 揃っていなければ
+  設定画面は「準備待ち」を表示し、収集は通常どおり成功する。鍵は`npx web-push generate-vapid-keys`で
+  作って1Passwordの`research-desk`アイテムへ入れ、`sync-secrets`で同期する。**鍵を作り直すと既存の
+  購読はすべて無効になる**（各端末でオンにし直す）
+- **通知の送信失敗は収集の成否に影響させない。** `notifyNewArticlesPush()`は例外を握り、既存の
+  aide-bot通知（`notifyNewCandidates()`）とは独立して動く
+- iPhoneはホーム画面に追加したアプリ（iOS 16.4以降）でのみ受け取れる
+- 判定ロジックはPrisma非依存の`src/lib/push-rules.ts`に置き`pnpm test`で検証する
