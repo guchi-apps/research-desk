@@ -225,7 +225,12 @@ Secretsや環境変数／課金・決済／大規模な依存関係の更新／`
 - `issue-labels.yml` … 進捗の状態遷移をイベント駆動で報告する
 - `claude-issue-dispatch.yml` … Issue起点の無人実行。**このファイルがデフォルトブランチに
   あることがissue-deckの盤面へ載る条件**なので消さない
-- `release-develop-to-main.yml` … バージョンbump PRと develop→main のPR作成
+- `release-develop-to-main.yml` … バージョンbump PRと develop→main のPR作成。
+  **バンプPRの自動マージは`develop`のブランチ保護（必須チェック`lint-and-build`）が前提**（#238）。
+  保護が無いと共有workflowの`gh pr merge --auto`が`Pull request is in clean status`で失敗し、
+  バンプPRが手動マージ待ちのまま止まる（run自体は成功するため気付きにくい）。バンプPRは対応Issueが
+  無いので`claude-review-develop.yml`側の自動マージも働かない。CIのジョブ名を変えたら保護の
+  必須チェック名も合わせる。設定値は`docs/architecture.md`の「バンプPRの自動マージ」を参照
 - `version-tag-check.yml` … バージョンの上げ忘れをmain宛PRで落とす。**消さないこと**——
   初回の`main`マージが作った`vX.Y.Z`タグと同じバージョンのまま2回目のリリースを出すと、
   `deploy.yml`のタグ作成が落ちて本番デプロイが止まる（guchi-apps/issue-deck#2378）
