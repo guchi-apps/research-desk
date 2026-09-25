@@ -657,11 +657,19 @@ NOT NULLの必須列（`activeKey`も`owner/repo#番号`の形）で、**外部�
 | 画面 → サーバー | `POST /api/analysis/review` | 同上 |
 | ポーラー → サーバー | `POST /api/internal/analysis/claim` | `ANALYSIS_WORKER_SECRET` |
 | ポーラー → サーバー | `POST /api/internal/analysis/report` | 同上 |
+| ops-dashboard → サーバー | `GET /api/internal/ai-usage` | `OPS_API_TOKEN` |
 
 **`ANALYSIS_WORKER_SECRET`はAIDE用の`INTERNAL_API_KEY`と別の値にしている。** #86でポーラーが
 VPSへ移り、AIDEと同じく`127.0.0.1`からの呼び出しになったが、呼び出し元は別の主体のままで、
 片方を失効させてももう片方が止まらないようにするため。どちらも未設定なら素通りではなく503
 （`src/lib/internal-auth.ts`）。未設定のあいだポーラーは待機したままで、ジョブは`queued`で残る。
+
+**`GET /api/internal/ai-usage`はops-dashboardの「アプリ別のAI利用」向け**（#243）。記事解析・週の総括・
+ニュース収集のCodex CLI呼出回数を、直近24時間・7日間×モデル別に返す（`src/lib/ai-usage.ts`）。
+**成功したものだけ数える**（記事解析は`ArticleAnalysis.createdAt`、他2つは`COMPLETED`の`finishedAt`）。
+トークン数は持たないので返さない。`model`がnullの行は固定ID`codex`に置換する（ops-dashboardは
+空でない文字列でない`model`が1行でもあると応答全体を捨てるため）。`OPS_API_TOKEN`はops-dashboardが全連携先へ送る共通の1本で、1Passwordの参照先はops-dashboardの項目を共用する（AIDE用`INTERNAL_API_KEY`とは別の値）。
+未設定なら503。
 
 状態は`queued` / `running` / `completed` / `failed` / `auth_required`の5つ
 （`ArticleAnalysisJob.status`）。
