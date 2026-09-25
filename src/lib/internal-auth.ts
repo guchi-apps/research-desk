@@ -27,6 +27,15 @@ export function requireAnalysisWorkerSecret(request: Request): NextResponse | nu
 }
 
 /**
+ * ops-dashboardが`GET /api/internal/ai-usage`を呼ぶときの認証（#243）。
+ *
+ * 呼び出し元がAIDEでもポーラーでもないため、専用のシークレットにして失効を分けられるようにする。
+ */
+export function requireOpsApiToken(request: Request): NextResponse | null {
+  return requireBearerSecret(request, process.env.OPS_API_TOKEN, "ops_api_not_configured");
+}
+
+/**
  * iPhoneのショートカットが写真を送る`POST /api/share/inbox`の認証（#144）。
  *
  * ショートカットはSupabaseのセッションを持てないため、スマホに置く専用のトークンで守る。
