@@ -668,7 +668,7 @@ VPSへ移り、AIDEと同じく`127.0.0.1`からの呼び出しになったが�
 ニュース収集のCodex CLI呼出回数を、直近24時間・7日間×モデル別に返す（`src/lib/ai-usage.ts`）。
 **成功したものだけ数える**（記事解析は`ArticleAnalysis.createdAt`、他2つは`COMPLETED`の`finishedAt`）。
 トークン数は持たないので返さない。`model`がnullの行は固定ID`codex`に置換する（ops-dashboardは
-空でない文字列でない`model`が1行でもあると応答全体を捨てるため）。`OPS_API_TOKEN`も他と別の値で、
+空でない文字列でない`model`が1行でもあると応答全体を捨てるため）。`OPS_API_TOKEN`はops-dashboardが全連携先へ送る共通の1本で、1Passwordの参照先はops-dashboardの項目を共用する（AIDE用`INTERNAL_API_KEY`とは別の値）。
 未設定なら503。
 
 状態は`queued` / `running` / `completed` / `failed` / `auth_required`の5つ
