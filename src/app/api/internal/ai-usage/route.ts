@@ -12,7 +12,7 @@ export const runtime = "nodejs";
  * 入らないことが多く、呼出回数として意味が薄いため含めない。
  */
 export async function GET(request: Request) {
-  const denied = requireOpsApiToken(request);
+  const denied = await requireOpsApiToken(request);
   if (denied) return denied;
 
   const now = new Date();
