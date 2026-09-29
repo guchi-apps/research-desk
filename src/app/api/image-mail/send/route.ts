@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { buildImageMailZipFileName } from "@/lib/image-mail-zip-filename";
 import { json } from "@/lib/internal-auth";
+import { getSharedToken } from "@/lib/shared-token";
 
 export const runtime = "nodejs";
 
@@ -17,9 +18,9 @@ interface AideImageMailConfig {
 // research-desk→AIDE方向。aide-botへの通知（src/lib/aide-bot-notice.ts）と同じく、
 // research-desk側が持つのは「AIDEのベースURL・トークン」だけの薄いクライアント。
 // パス（/api/image-mail/send）はAIDE_BOT_URLと同じ流儀でコード側が足す（#102）。
-function readAideImageMailConfig(): AideImageMailConfig | null {
+async function readAideImageMailConfig(): Promise<AideImageMailConfig | null> {
   const url = (process.env.AIDE_IMAGE_MAIL_URL ?? "").trim().replace(/\/$/, "");
-  const token = (process.env.AIDE_IMAGE_MAIL_TOKEN ?? "").trim();
+  const token = ((await getSharedToken("AIDE_IMAGE_MAIL_TOKEN", "AIDE_IMAGE_MAIL_TOKEN")) ?? "").trim();
   if (!url || !token) return null;
   return { url, token };
 }
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
   const user = await getCurrentUser();
   if (user.status !== "authenticated") return json({ error: "unauthorized" }, 401);
 
-  const config = readAideImageMailConfig();
+  const config = await readAideImageMailConfig();
   if (!config) return json({ error: "aide_not_configured", message: "AIDEとの連携が未設定です" }, 503);
 
   let form: FormData;

@@ -77,7 +77,7 @@ function validateInput(value: unknown): WeeklyReportInput {
  * （`src/lib/collection.ts`の`upsertIndustryInformationEvent()`、#43）。
  */
 export async function POST(request: Request) {
-  const unauthorized = requireInternalApiKey(request);
+  const unauthorized = await requireInternalApiKey(request);
   if (unauthorized) return unauthorized;
   if (!allowedByRateLimit(request)) return json({ error: "rate_limited", message: "呼び出し回数の上限を超えました。しばらく待ってから再試行してください" }, 429);
 

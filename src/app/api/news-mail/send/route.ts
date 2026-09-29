@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { listIndustryInformationByIds } from "@/lib/industry-information";
 import { json } from "@/lib/internal-auth";
+import { getSharedToken } from "@/lib/shared-token";
 import { getWeekRange } from "@/lib/jst-week";
 import { buildNewsMail, parseNewsMailRequest, toNewsMailArticle, type NewsMailBrief } from "@/lib/news-mail";
 import { toNewsMailArticleDto } from "@/lib/news-mail-articles";
@@ -17,9 +18,9 @@ interface AideNewsMailConfig {
 
 // research-desk→AIDE方向。画像メール（`src/app/api/image-mail/send/route.ts`）と同じ流儀で、
 // 持つのは「AIDEのベースURL・トークン」だけにし、パス（/api/news-mail/send）はコード側が足す。
-function readAideNewsMailConfig(): AideNewsMailConfig | null {
+async function readAideNewsMailConfig(): Promise<AideNewsMailConfig | null> {
   const url = (process.env.AIDE_NEWS_MAIL_URL ?? "").trim().replace(/\/$/, "");
-  const token = (process.env.AIDE_NEWS_MAIL_TOKEN ?? "").trim();
+  const token = ((await getSharedToken("AIDE_NEWS_MAIL_TOKEN", "AIDE_NEWS_MAIL_TOKEN")) ?? "").trim();
   if (!url || !token) return null;
   return { url, token };
 }
@@ -40,7 +41,7 @@ export async function POST(request: Request) {
   if (user.status === "unavailable") return json({ error: "auth_unavailable" }, 503);
   if (user.status !== "authenticated") return json({ error: "unauthorized" }, 401);
 
-  const config = readAideNewsMailConfig();
+  const config = await readAideNewsMailConfig();
   if (!config) return json({ error: "aide_not_configured", message: "AIDEとの連携が未設定です" }, 503);
 
   let body: unknown;
