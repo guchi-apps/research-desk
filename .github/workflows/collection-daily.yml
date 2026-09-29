@@ -1,6 +1,6 @@
 name: Daily Collection
 
-# 日次収集API（POST /api/collection/daily）を定期実行する（guchi-apps/research-desk#33・#43）。
+# 日次収集API（POST /api/collection/daily）を定期実行する（guchi-apps/work-relay#33・#43）。
 # 元は毎週日曜18:00の週次収集だったが、#43で1事業あたり週5件を日次差分で維持する仕様に変わり、
 # エンドポイント・cronとも日次へ変更した（`runWeeklyCollection`→`runDailyCollection`）。
 #
