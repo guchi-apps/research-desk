@@ -980,4 +980,4 @@ versionが変わると、pushトリガーでdevelop→mainのPRが自動作成�
   これでCI完了後も約23分手動マージ待ちになった
 - 設定値（dayspan・issue-deckと同じ）: 必須チェック`lint-and-build`・strict=false・enforce_admins=false・
   レビュー必須なし・force push/削除禁止。`main`は別途ruleset（`protect main`）で保護している
-- 確認: `gh api repos/guchi-apps/research-desk/branches/develop/protection`
+- 確認: `gh api repos/guchi-apps/work-relay/branches/develop/protection`

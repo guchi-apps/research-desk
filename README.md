@@ -39,7 +39,7 @@ curl -X POST https://research-desk.gucchii.com/api/collection/daily \
 
 `COLLECTION_CRON_SECRET` は本番の `.env`（`deploy.yml` が配る）とGitHubのrepository secret
 （cronが送る）の両方に同じ値が要る。片方だけ変えると401になる。値の発行・同期は
-`scripts/provision-secret.sh --repo guchi-apps/research-desk --key COLLECTION_CRON_SECRET --generate hex32`
+`scripts/provision-secret.sh --repo guchi-apps/work-relay --key COLLECTION_CRON_SECRET --generate hex32`
 （issue-deck側のスクリプト）で行う。
 
 今週（JST月曜0時始まり）の候補を優先して宅配・ロッカー各5件まで、全体10件まで保持する。候補が
