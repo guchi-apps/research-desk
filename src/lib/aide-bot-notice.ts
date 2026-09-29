@@ -1,4 +1,5 @@
 import type { CollectionResult } from "@/lib/collection";
+import { getSharedToken } from "@/lib/shared-token";
 
 /**
  * 収集で新しく入った候補の件数を aide-bot の `POST /api/notices` へ積む（#41）。
@@ -22,9 +23,9 @@ const REQUEST_TIMEOUT_MS = 10_000;
 // 切らないと先週分の新着が翌週の吹き出しに残り続ける。
 const EXPIRES_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
-function readAideBotConfig(): AideBotConfig | null {
+async function readAideBotConfig(): Promise<AideBotConfig | null> {
   const url = (process.env.AIDE_BOT_URL ?? "").trim().replace(/\/$/, "");
-  const token = (process.env.AIDE_BOT_TOKEN ?? "").trim();
+  const token = ((await getSharedToken("AIDE_BOT_NOTICE_INGEST_TOKEN", "AIDE_BOT_TOKEN")) ?? "").trim();
   const email = (process.env.AIDE_BOT_EMAIL ?? "").trim();
   if (!url || !token || !email) return null;
   return { url, token, email };
@@ -45,7 +46,7 @@ export async function notifyNewCandidates(
   result: Pick<CollectionResult, "insertedCount" | "mergedCount" | "targetFrom">,
   listUrl: string,
 ): Promise<void> {
-  const config = readAideBotConfig();
+  const config = await readAideBotConfig();
   if (!config) return;
 
   const controller = new AbortController();

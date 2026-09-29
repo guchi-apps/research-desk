@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { getSharedToken } from "@/lib/shared-token";
 
 /**
  * サーバー間連携API（`/api/internal/*`）の認証。
@@ -11,8 +12,9 @@ import { NextResponse } from "next/server";
  *
  * 通過した場合は null を返す。呼び出し側が「返り値があればそのまま返す」だけで済む形にする。
  */
-export function requireInternalApiKey(request: Request): NextResponse | null {
-  return requireBearerSecret(request, process.env.INTERNAL_API_KEY, "internal_api_not_configured");
+export async function requireInternalApiKey(request: Request): Promise<NextResponse | null> {
+  // 共有トークン`RESEARCH_DESK_INTERNAL_API_KEY`を優先し、取得できなければ`INTERNAL_API_KEY`（#255）。
+  return requireBearerSecret(request, await getSharedToken("RESEARCH_DESK_INTERNAL_API_KEY", "INTERNAL_API_KEY"), "internal_api_not_configured");
 }
 
 /**
@@ -31,8 +33,8 @@ export function requireAnalysisWorkerSecret(request: Request): NextResponse | nu
  *
  * 呼び出し元がAIDEでもポーラーでもないため、専用のシークレットにして失効を分けられるようにする。
  */
-export function requireOpsApiToken(request: Request): NextResponse | null {
-  return requireBearerSecret(request, process.env.OPS_API_TOKEN, "ops_api_not_configured");
+export async function requireOpsApiToken(request: Request): Promise<NextResponse | null> {
+  return requireBearerSecret(request, await getSharedToken("OPS_API_TOKEN", "OPS_API_TOKEN"), "ops_api_not_configured");
 }
 
 /**
