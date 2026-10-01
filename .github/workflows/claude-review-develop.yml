@@ -57,6 +57,12 @@ jobs:
         ^\.github/secrets-manifest\.tsv$ :: シークレット定義の変更 (.github/secrets-manifest.tsv)
         (^|/)requirements[^/]*\.txt$|(^|/)pyproject\.toml$|(^|/)Pipfile$ :: 依存関係の変更 (requirements*.txt, pyproject.toml, Pipfile)
         /package\.json$ :: ルート以外の依存関係の変更 (frontend/package.json など。dependency-checkはルートしか見ない)
+        ^src/(proxy\.ts$|lib/(supabase/|auth[^/]*\.ts$|internal-auth\.ts$|dev-login\.ts$|shared-token\.ts$|request-origin\.ts$)) :: 認証・セッション・共有トークンまわりの変更 (src/proxy.ts, src/lib/supabase/**, src/lib/auth*.ts, internal-auth.ts, dev-login.ts, shared-token.ts, request-origin.ts)
+        ^prisma/schema\.prisma$ :: DBスキーマの変更 (prisma/schema.prisma。migrationsは内蔵パターンが拾う)
+      # claude-reviewを実行する差分規模の閾値（既定は10ファイル / 500行）。Issue #267で
+      # 小さめのPRでもレビューにかかるよう下げた。lockファイルは差分規模から除外される。
+      review-file-threshold: "5"
+      review-line-threshold: "200"
       # 上の uses: と同じタグを指定する。片方だけ上げると新しいワークフローで
       # 古いプロンプトが使われる。
       prompts-ref: workflows/v41
